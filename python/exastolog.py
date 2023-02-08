@@ -110,6 +110,7 @@ class TransitionGraph:
 
     def __init__(self, table: TransitionTable):
         self.table = table.transition_table
+        self.sorted_subgraphs = []
 
     def create_metagraph(self, table):
         count, labels = scipy.sparse.csgraph.connected_components(
@@ -127,11 +128,12 @@ class TransitionGraph:
             sccomponents[labels[i]].add(i)
             incoming = table[i].indices
             for inc in incoming:
-                metagraph[labels[i]].add(labels[inc])
+                if labels[i] != labels[inc]:
+                    metagraph[labels[i]].add(labels[inc])
 
         return sccomponents, metagraph
 
-    def build_adjacency_matrix(self, sccs, sorted_metavertices):
+    def build_sorted_transition_table(self, original_table, sccs, sorted_metavertices):
 
         sorted_vertices = []
 
@@ -142,7 +144,7 @@ class TransitionGraph:
         indptrs = [0]
 
         for v in sorted_vertices:
-            incoming = self.table[v].indices
+            incoming = original_table[v].indices
 
             indptrs.append(indptrs[-1] + len(incoming))
 
@@ -152,7 +154,7 @@ class TransitionGraph:
         sorted_table = scipy.sparse.csr_matrix(
             ([1] * len(indices), indices, indptrs), shape=(len(sorted_vertices), len(sorted_vertices)))
 
-        print(self.table.todense())
+        print(original_table.todense())
 
         print(sorted_vertices)
 
@@ -160,48 +162,89 @@ class TransitionGraph:
 
         print(sorted_table.todense())
 
-        return sorted_table
+        return sorted_table, sorted_vertices
 
     def sort(self):
-        count, x = scipy.sparse.csgraph.connected_components(
+        count, disconnected_subgraphs = scipy.sparse.csgraph.connected_components(
             self.table, directed=True, connection='weak')
 
-        # if count != 1:
-        #     print("multiple graph components not yet supported")
-        #     exit(0)
+        for i in range(count):
+            subgraph_indices = np.argwhere(
+                disconnected_subgraphs == i).flatten()
+            subtable = self.table[subgraph_indices, :][:, subgraph_indices]
 
-        sccs, metagraph = self.create_metagraph(self.table)
+            if (subtable.shape[0] == 1):
+                self.sorted_subgraphs.append((1, [[0]], [0, 1], [0]))
+                continue
 
-        ts = graphlib.TopologicalSorter(metagraph)
-        sccs_ordering = list(ts.static_order())
+            sccs, metagraph = self.create_metagraph(subtable)
 
-        self.sorted_table = self.build_adjacency_matrix(
-            sccs, sccs_ordering)
+            ts = graphlib.TopologicalSorter(metagraph)
+            sccs_ordering = list(ts.static_order())
 
-        def is_terminal(component):
-            for i in reversed(sccs_ordering):
-                if component in metagraph[i]:
-                    return False
-            return True
+            sorted_subtable, sorted_subvertices = self.build_sorted_transition_table(subtable,
+                                                                                     sccs, sccs_ordering)
 
-        self.terminal_offsets = []
+            def is_terminal(component):
+                for i in reversed(sccs_ordering):
+                    if component in metagraph[i]:
+                        return False
+                return True
 
-        for i in range(len(sccs_ordering) - 1, -1, -1):
+            terminal_offsets = []
 
-            if not is_terminal(sccs_ordering[i]):
-                self.terminal_offsets.append(i+1)
-                break
+            for i in range(len(sccs_ordering) - 1, -1, -1):
 
-        for i in range(self.terminal_offsets[0], len(sccs_ordering)):
-            self.terminal_offsets.append(
-                self.terminal_offsets[-1] + len(sccs[sccs_ordering[i]]))
+                if not is_terminal(sccs_ordering[i]):
+                    terminal_offsets.append(i+1)
+                    break
+
+            for i in range(terminal_offsets[0], len(sccs_ordering)):
+                terminal_offsets.append(
+                    terminal_offsets[-1] + len(sccs[sccs_ordering[i]]))
+
+            self.sorted_subgraphs.append(
+                (subgraph_indices, sorted_subtable, terminal_offsets, sorted_subvertices))
+
+
+class InitialState:
+
+    def __init__(self, model: Model, fixed_nodes=[], fixed_values=[], fixed_probability=1):
+        nodes = list(model.model.keys())
+        n = len(nodes)
+        states_count = 2 ** n
+        states = np.remainder(
+            np.floor(
+                np.multiply(
+                    np.array([range(states_count)]).transpose(),
+                    np.array(
+                        [np.power([2.0]*n, np.array(range(0, -n, -1)))])
+                )
+            ), 2
+        ).astype(bool)
+
+        fixed_indices = [nodes.index(f) for f in fixed_nodes]
+        fixed_state = [v == 1 for v in fixed_values]
+
+        fixed_state_mask = np.sum(np.array(fixed_state) == states[:, fixed_indices], axis=1) == len(fixed_nodes)
+
+        fixed_state_indices_count = np.sum(fixed_state_mask)
+        nonfixed_state_indices_count = states_count - fixed_state_indices_count
+
+        self.x_0 = np.empty((states_count))
+
+        self.x_0[fixed_state_mask] = fixed_probability / \
+            fixed_state_indices_count
+
+        self.x_0[~fixed_state_mask] = (
+            1 - fixed_probability) / nonfixed_state_indices_count
 
 
 class Solution:
 
-    def __init__(self, graph: TransitionGraph, nodes_count):
-        self.table = graph.sorted_table
-        self.offsets = graph.terminal_offsets
+    def __init__(self, graph: TransitionGraph, initial_state: InitialState, nodes_count):
+        self.subgraphs = graph.sorted_subgraphs
+        self.initial_state = initial_state.x_0
         self.n = nodes_count
 
     def create_kinetic(self, trans_table):
@@ -209,13 +252,13 @@ class Solution:
         K = uni_weights * trans_table
         return K - scipy.sparse.diags(np.array(K.sum(axis=0))[0])
 
-    def compute_scc_kernel(self, terminal_index):
+    def compute_scc_kernel(self, table, terminal_offsets, terminal_index):
 
-        state_start = self.offsets[terminal_index]
-        state_end = self.offset[terminal_index + 1]
+        state_start = terminal_offsets[terminal_index]
+        state_end = terminal_offsets[terminal_index + 1]
 
-        scc_transition_table = self.table[state_start:
-                                          state_end][state_start:state_end]
+        scc_transition_table = table[state_start:
+                                     state_end, state_start:state_end]
 
         K = self.create_kinetic(scc_transition_table).todense()
 
@@ -225,36 +268,36 @@ class Solution:
 
         return scipy.linalg.inv(K)[:, 0] * sign * scipy.linalg.det(K)
 
-    def compute_column_nullspace(self):
+    def compute_column_nullspace(self, table, terminal_offsets):
 
-        terminal_start = self.offsets[0]
+        terminal_start = terminal_offsets[0]
 
         data = []
         indices = []
         indptrs = [0] * (terminal_start + 1)
 
-        for i in range(len(self.offsets) - 1):
-            scc_size = self.offsets[i+1] - self.offsets[i]
+        for i in range(len(terminal_offsets) - 1):
+            scc_size = terminal_offsets[i+1] - terminal_offsets[i]
             indptrs.append(indptrs[-1] + scc_size)
 
-            indices += [self.offsets[i+1] - terminal_start - 1] * scc_size
+            indices += [terminal_offsets[i+1] - terminal_start - 1] * scc_size
             if scc_size == 1:
                 data.append(1)
             else:
-                data += self.compute_scc_kernel(i)
+                data += self.compute_scc_kernel(table, terminal_offsets, i)
 
-        return scipy.sparse.csr_matrix((data, indices, indptrs), shape=(self.table.shape[0], self.table.shape[0] - terminal_start))
+        return scipy.sparse.csr_matrix((data, indices, indptrs), shape=(table.shape[0], table.shape[0] - terminal_start))
 
-    def compute_row_nullspace(self, column_nullspace):
+    def compute_row_nullspace(self, table, terminal_offsets, column_nullspace):
 
-        terminal_start = self.offsets[0]
+        terminal_start = terminal_offsets[0]
 
         U = column_nullspace[terminal_start:, :].transpose()
         U.data = np.array([1] * len(U.data))
 
         print(U.todense())
 
-        K = self.create_kinetic(self.table)
+        K = self.create_kinetic(table)
         N = K[:terminal_start, :terminal_start]
         B = K[terminal_start:, :terminal_start]
 
@@ -262,25 +305,62 @@ class Solution:
         print(N.todense())
         print(B.todense())
 
-        X = -U @ B @ scipy.sparse.linalg.inv(N)
+        N_inv = scipy.sparse.linalg.inv(N)
+        X = -U @ B @ N_inv
 
         return scipy.sparse.hstack((X, U))
 
-    def compute_nullspaces(self):
-        R = self.compute_column_nullspace()
-        print(R.todense())
-        L = self.compute_row_nullspace(R)
-        print(L.todense())
+    def compute_final_states(self):
 
-        print((L @ R).todense())
+        for subgraph_indices, subtable, terminal_offsets, sorted_subvertices in self.subgraphs:
 
-        return L, R
+            # just a single disconnected state -> probability of final state does not change
+            if len(subgraph_indices) == 1:
+                continue
+
+            R = self.compute_column_nullspace(subtable, terminal_offsets)
+            L = self.compute_row_nullspace(subtable, terminal_offsets, R)
+
+            print("SCC:")
+            print(L.todense())
+            print(R.todense())
+            K = self.create_kinetic(subtable)
+            print((L @ R).todense())
+            print((L @ K).todense())
+            print((K @ R).todense())
+
+            self.initial_state[subgraph_indices[sorted_subvertices]] = R @ L @ self.initial_state[subgraph_indices[sorted_subvertices]]
+
+        return self.initial_state
 
 
-model = Model(join(dirname(__file__), "../data/toy-paper.bnet"))
+# model = Model(join(dirname(__file__), "../data/toy.bnet"))
+# table = TransitionTable(model)
+# table.build_transition_table()
+# graph = TransitionGraph(table)
+# graph.sort()
+# initial_state = InitialState(model, ['A','C', 'D'], [0, 0, 0])
+# solution = Solution(graph, initial_state, len(model.model.keys()))
+# x_star = solution.compute_final_states()
+# print(x_star)
+
+# model = Model(join(dirname(__file__), "../data/toy2.bnet"))
+# table = TransitionTable(model)
+# table.build_transition_table()
+# graph = TransitionGraph(table)
+# graph.sort()
+# initial_state = InitialState(model, ['A','B', 'C'], [0, 0, 0])
+# solution = Solution(graph, initial_state, len(model.model.keys()))
+# x_star = solution.compute_final_states()
+# print(x_star)
+
+
+model = Model(join(dirname(__file__), "../data/toy3.bnet"))
 table = TransitionTable(model)
 table.build_transition_table()
 graph = TransitionGraph(table)
 graph.sort()
-solution = Solution(graph, len(model.model.keys()))
-solution.compute_nullspaces()
+initial_state = InitialState(model, ['A','B'], [0, 0])
+solution = Solution(graph, initial_state, len(model.model.keys()))
+x_star = solution.compute_final_states()
+print(x_star)
