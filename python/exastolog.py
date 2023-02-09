@@ -154,14 +154,6 @@ class TransitionGraph:
         sorted_table = scipy.sparse.csr_matrix(
             ([1] * len(indices), indices, indptrs), shape=(len(sorted_vertices), len(sorted_vertices)))
 
-        print(original_table.todense())
-
-        print(sorted_vertices)
-
-        print(indptrs)
-
-        print(sorted_table.todense())
-
         return sorted_table, sorted_vertices
 
     def sort(self):
@@ -173,11 +165,17 @@ class TransitionGraph:
                 disconnected_subgraphs == i).flatten()
             subtable = self.table[subgraph_indices, :][:, subgraph_indices]
 
-            if (subtable.shape[0] == 1):
+            subnodes_count = len(subgraph_indices)
+
+            if (subnodes_count == 1):
                 self.sorted_subgraphs.append((1, [[0]], [0, 1], [0]))
                 continue
 
             sccs, metagraph = self.create_metagraph(subtable)
+
+            if len(sccs) == 1:
+                self.sorted_subgraphs.append((subgraph_indices, subtable, [0, subnodes_count], list(range(subnodes_count))))
+                continue
 
             ts = graphlib.TopologicalSorter(metagraph)
             sccs_ordering = list(ts.static_order())
@@ -260,33 +258,42 @@ class Solution:
         scc_transition_table = table[state_start:
                                      state_end, state_start:state_end]
 
+        nodes_count = scc_transition_table.shape[0]
+
         K = self.create_kinetic(scc_transition_table).todense()
+        K = np.delete(K, 0, axis=0)
 
-        sign = np.empty((K.shape[0]))
-        sign[::2] = 1
-        sign[1::2] = -1
+        kernel = np.empty((nodes_count))
 
-        return scipy.linalg.inv(K)[:, 0] * sign * scipy.linalg.det(K)
+        sign = -1 ** (nodes_count - 1)
+        for i in range(nodes_count):
+            minor = np.delete(K, i, axis=1)
+            kernel[i] = sign * scipy.linalg.det(minor)
+            sign *= -1
+
+        return kernel / np.sum(kernel)
 
     def compute_column_nullspace(self, table, terminal_offsets):
 
+        terminals_count = len(terminal_offsets) - 1
         terminal_start = terminal_offsets[0]
 
-        data = []
+        data = np.empty((table.shape[0] - terminal_start))
         indices = []
         indptrs = [0] * (terminal_start + 1)
 
-        for i in range(len(terminal_offsets) - 1):
+        for i in range(terminals_count):
             scc_size = terminal_offsets[i+1] - terminal_offsets[i]
-            indptrs.append(indptrs[-1] + scc_size)
 
-            indices += [terminal_offsets[i+1] - terminal_start - 1] * scc_size
+            for _ in range(scc_size):
+                indptrs.append(indptrs[-1] + 1)
+            indices += [i] * scc_size
             if scc_size == 1:
-                data.append(1)
+                data[i] = 1
             else:
-                data += self.compute_scc_kernel(table, terminal_offsets, i)
+                data[i: scc_size] = self.compute_scc_kernel(table, terminal_offsets, i)
 
-        return scipy.sparse.csr_matrix((data, indices, indptrs), shape=(table.shape[0], table.shape[0] - terminal_start))
+        return scipy.sparse.csr_matrix((data, indices, indptrs), shape=(table.shape[0], terminals_count))
 
     def compute_row_nullspace(self, table, terminal_offsets, column_nullspace):
 
@@ -295,15 +302,12 @@ class Solution:
         U = column_nullspace[terminal_start:, :].transpose()
         U.data = np.array([1] * len(U.data))
 
-        print(U.todense())
+        if terminal_start == 0:
+            return U
 
         K = self.create_kinetic(table)
         N = K[:terminal_start, :terminal_start]
         B = K[terminal_start:, :terminal_start]
-
-        print(K.todense())
-        print(N.todense())
-        print(B.todense())
 
         N_inv = scipy.sparse.linalg.inv(N)
         X = -U @ B @ N_inv
@@ -320,14 +324,6 @@ class Solution:
 
             R = self.compute_column_nullspace(subtable, terminal_offsets)
             L = self.compute_row_nullspace(subtable, terminal_offsets, R)
-
-            print("SCC:")
-            print(L.todense())
-            print(R.todense())
-            K = self.create_kinetic(subtable)
-            print((L @ R).todense())
-            print((L @ K).todense())
-            print((K @ R).todense())
 
             self.initial_state[subgraph_indices[sorted_subvertices]] = R @ L @ self.initial_state[subgraph_indices[sorted_subvertices]]
 
@@ -355,12 +351,12 @@ class Solution:
 # print(x_star)
 
 
-model = Model(join(dirname(__file__), "../data/toy3.bnet"))
-table = TransitionTable(model)
-table.build_transition_table()
-graph = TransitionGraph(table)
-graph.sort()
-initial_state = InitialState(model, ['A','B'], [0, 0])
-solution = Solution(graph, initial_state, len(model.model.keys()))
-x_star = solution.compute_final_states()
-print(x_star)
+# model = Model(join(dirname(__file__), "../data/toy3.bnet"))
+# table = TransitionTable(model)
+# table.build_transition_table()
+# graph = TransitionGraph(table)
+# graph.sort()
+# initial_state = InitialState(model, ['A','B'], [0, 0])
+# solution = Solution(graph, initial_state, len(model.model.keys()))
+# x_star = solution.compute_final_states()
+# print(x_star)
