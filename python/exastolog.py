@@ -3,7 +3,6 @@ from os.path import dirname, join
 import numpy as np
 import boolean
 import scipy
-import sknetwork.topology
 
 
 class Model:
@@ -148,6 +147,23 @@ class TransitionGraph:
         self.sorted_subgraphs = []
         self.initial_state = initial_state.x_0
 
+    def toposort(self, table):
+        ordering = np.empty((table.shape[0]), dtype=int)
+        terminals_idx = None
+        fill_idx = table.shape[0]
+        while table.shape[0] != 0:
+            mask = np.array(table.sum(axis=0) == 0)[0]
+            table = table[~mask, :][:, ~mask]
+
+            indices = np.argwhere(mask).flatten()
+            fill_idx -= indices.shape[0]
+            ordering[fill_idx: fill_idx + indices.shape[0]] = indices
+
+            if terminals_idx is None:
+                terminals_idx = fill_idx
+
+        return ordering, terminals_idx
+
     def create_metagraph(self, table):
         count, labels = scipy.sparse.csgraph.connected_components(
             table, directed=True, connection='strong')
@@ -164,7 +180,7 @@ class TransitionGraph:
         if count == table.shape[0]:
             return sccomponents, table
 
-        columns, rows = table.nonzero()
+        rows, columns = table.nonzero()
 
         sccs_transitions_mask = labels[rows] != labels[columns]
 
@@ -176,6 +192,8 @@ class TransitionGraph:
              (labels[row_transitions], labels[col_transitions])),
             shape=(count, count)
         )
+
+        metagraph.data = np.ones((metagraph.data.shape))
 
         return sccomponents, metagraph
 
@@ -215,35 +233,19 @@ class TransitionGraph:
                     (subgraph_indices, subtable, [0, subnodes_count], list(range(subnodes_count))))
                 continue
 
-            # ts = graphlib.TopologicalSorter(metagraph)
-            # sccs_ordering = list(ts.static_order())
-
-            dag = sknetwork.topology.DAG(ordering='degree')
-            dag.fit(metagraph)
+            sccs_ordering, terminal_start_idx = self.toposort(metagraph)
 
             sorted_subtable, sorted_subvertices = self.build_sorted_transition_table(subtable,
                                                                                      sccs, sccs_ordering)
 
-            def is_terminal(component):
-                for i in reversed(sccs_ordering):
-                    if component in metagraph[i]:
-                        return False
-                return True
-
-            terminal_offsets = [len(sorted_subvertices)]
-
-            terminal_start_idx = 0
-            for i in range(len(sccs_ordering) - 1, -1, -1):
-
-                if not is_terminal(sccs_ordering[i]):
-                    break
-
-                terminal_start_idx = i
-                terminal_offsets[0] -= len(sccs[sccs_ordering[i]])
+            terminal_offsets = [0]
 
             for i in range(terminal_start_idx, len(sccs_ordering)):
                 terminal_offsets.append(
                     terminal_offsets[-1] + len(sccs[sccs_ordering[i]]))
+
+            terminal_offsets = [
+                x + (subnodes_count - terminal_offsets[-1]) for x in terminal_offsets]
 
             self.sorted_subgraphs.append(
                 (subgraph_indices, sorted_subtable, terminal_offsets, sorted_subvertices))
@@ -324,8 +326,11 @@ class Solution:
         A = -U @ B
         Bb = N
 
+        scipy.sparse.linalg.use_solver(
+            useUmfpack=True, assumeSortedIndices=False)
         X = scipy.sparse.linalg.spsolve(
-            Bb.conj().T, A.conj().T).conj().T
+            Bb.conj().T, A.conj().T,
+            use_umfpack=True).conj().T
 
         return scipy.sparse.hstack((X, U))
 
@@ -355,14 +360,14 @@ class Solution:
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
-model = Model(join(dirname(__file__), "../data/toy2.bnet"))
-table = TransitionTable(model)
-table.build_transition_table()
-initial_state = InitialState(model, ['A','B', 'C'], [0, 0, 0])
-graph = TransitionGraph(table, initial_state)
-graph.sort()
-solution = Solution(graph, initial_state, len(model.model.keys()))
-x_star = solution.compute_final_states()
+# model = Model(join(dirname(__file__), "../data/toy2.bnet"))
+# table = TransitionTable(model)
+# table.build_transition_table()
+# initial_state = InitialState(model, ['A','B', 'C'], [0, 0, 0])
+# graph = TransitionGraph(table, initial_state)
+# graph.sort()
+# solution = Solution(graph, initial_state, len(model.model.keys()))
+# x_star = solution.compute_final_states()
 
 # model = Model(join(dirname(__file__), "../data/toy3.bnet"))
 # table = TransitionTable(model)
@@ -391,15 +396,15 @@ x_star = solution.compute_final_states()
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
-# model = Model(join(dirname(__file__), "../data/krasmodel15vars.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(
-#     model, ['cc', 'KRAS', 'DSB', 'cell_death'], [1, 1, 1, 0])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+model = Model(join(dirname(__file__), "../data/krasmodel15vars.bnet"))
+table = TransitionTable(model)
+table.build_transition_table()
+initial_state = InitialState(
+    model, ['cc', 'KRAS', 'DSB', 'cell_death'], [1, 1, 1, 0])
+graph = TransitionGraph(table, initial_state)
+graph.sort()
+solution = Solution(graph, initial_state, len(model.model.keys()))
+x_star = solution.compute_final_states()
 
 
 probs = np.zeros((len(x_star.nonzero()[0])))
