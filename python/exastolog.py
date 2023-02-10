@@ -1,5 +1,4 @@
 import pandas as pd
-from os.path import dirname, join
 import numpy as np
 import boolean
 import scipy
@@ -50,21 +49,23 @@ class TransitionTable:
             ]
         ).transpose()
 
-        trans_source = np.argwhere(
+        transitions = np.argwhere(
             state_updates != states)
 
-        transitions_src = []
-        transitions_dest = []
-        for t in trans_source:
-            transitions_src.append(t[0])
-            if (state_updates[t[0], t[1]] == True):
-                transitions_dest.append(t[0] + 2 ** t[1])
-            else:
-                transitions_dest.append(t[0] - 2 ** t[1])
+        transitions_src = transitions[:, 0]
+        transitions_dest = np.empty((transitions.shape[0]))
+
+        up_transition_mask = state_updates[transitions[:,
+                                                       0], transitions[:, 1]] == True
+
+        transitions_dest[up_transition_mask] = transitions[up_transition_mask,
+                                                           0] + 2 ** transitions[up_transition_mask, 1]
+        transitions_dest[~up_transition_mask] = transitions[~up_transition_mask,
+                                                            0] - 2 ** transitions[~up_transition_mask, 1]
 
         self.transition_table = scipy.sparse.csr_matrix(
             (
-                [1]*len(transitions_dest),
+                np.ones((len(transitions_dest))),
                 (transitions_dest,
                  transitions_src)
             ),
@@ -171,19 +172,20 @@ class TransitionGraph:
         count, labels = scipy.sparse.csgraph.connected_components(
             table, directed=True, connection='strong')
 
-        sccomponents = []
-
         # All SCCs are single vertices => metagraph = graph
         if count == table.shape[0]:
-            for i in range(count):
-                sccomponents.append(set([i]))
+            sccomponents = np.arange(count, dtype=int).reshape((count, 1))
             return sccomponents, table
 
-        for i in range(count):
-            sccomponents.append(set())
+        sccomponents = np.empty(shape=(count), dtype=object)
 
-        for i in range(len(labels)):
-            sccomponents[labels[i]].add(i)
+        sort_idx = np.argsort(labels)
+        labels_sorted = labels[sort_idx]
+        unq_first = np.concatenate(
+            ([True], labels_sorted[1:] != labels_sorted[:-1]))
+        unq_count = np.diff(np.nonzero(unq_first)[0])
+        sccomponents = np.array(
+            np.split(sort_idx, np.cumsum(unq_count)), dtype=object)
 
         rows, columns = table.nonzero()
 
@@ -204,10 +206,7 @@ class TransitionGraph:
 
     def build_sorted_transition_table(self, original_table, sccs, sorted_metavertices):
 
-        sorted_vertices = []
-
-        for v in sorted_metavertices:
-            sorted_vertices = sorted_vertices + list(sccs[v])
+        sorted_vertices = np.concatenate(sccs[sorted_metavertices])
 
         return original_table[sorted_vertices, :][:, sorted_vertices], sorted_vertices
 
@@ -328,9 +327,12 @@ class Solution:
         N = K[:terminal_start, :][:, :terminal_start]
         B = K[terminal_start:, :][:, :terminal_start]
 
-        N_inv = scipy.sparse.linalg.inv(N)
-        
-        X = -U @ B @ N_inv
+        X = -U @ B
+
+        scipy.sparse.linalg.use_solver(
+            useUmfpack=True, assumeSortedIndices=False)
+        X = scipy.sparse.linalg.spsolve(N.conj().transpose(
+        ), X.conj().transpose(), use_umfpack=True).conj().transpose()
 
         return scipy.sparse.hstack((X, U))
 
@@ -351,90 +353,33 @@ class Solution:
         return self.initial_state
 
 
-# model = Model(join(dirname(__file__), "../data/toy.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(model, ['A','C', 'D'], [0, 0, 0])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+def state_to_df(state, node_names):
+    probs = np.zeros((len(state.nonzero()[0])))
+    states = []
 
-# model = Model(join(dirname(__file__), "../data/toy2.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(model, ['A','B', 'C'], [0, 0, 0])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+    for i, stateval in enumerate(state.nonzero()[0]):
 
-# model = Model(join(dirname(__file__), "../data/toy3.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(model, ['A','B'], [0, 0])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+        binstate = np.zeros((len(node_names)))
+        c = len(node_names)-1
+        t_stateval = stateval
 
-# model = Model(join(dirname(__file__), "../data/EMT_cohen_ModNet.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(model, ['ECMicroenv','DNAdamage','Metastasis','Migration','Invasion','EMT','Apoptosis','Notch_pthw','p53'], [1, 1, 0, 0, 0, 0, 0, 1, 0])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+        while t_stateval > 0:
+            binstate[c] = t_stateval % 2
+            t_stateval = t_stateval // 2
+            c -= 1
 
-# model = Model(join(dirname(__file__), "../data/mammalian_cc.bnet"))
-# table = TransitionTable(model)
-# table.build_transition_table()
-# initial_state = InitialState(model, ['CycE','CycA','CycB','Cdh1','Rb_b1','Rb_b2','p27_b1','p27_b2'], [0, 0, 0, 1, 1, 1, 1, 1])
-# graph = TransitionGraph(table, initial_state)
-# graph.sort()
-# solution = Solution(graph, initial_state, len(model.model.keys()))
-# x_star = solution.compute_final_states()
+        inds_states, = np.where(np.flip(binstate))
 
-model = Model(join(dirname(__file__), "../data/krasmodel15vars.bnet"))
-table = TransitionTable(model)
-table.build_transition_table()
-initial_state = InitialState(
-    model, ['cc', 'KRAS', 'DSB', 'cell_death'], [1, 1, 1, 0])
-graph = TransitionGraph(table, initial_state)
-graph.sort()
-solution = Solution(graph, initial_state, len(model.model.keys()))
-x_star = solution.compute_final_states()
+        if len(inds_states) > 0:
+            t_state = [node_names[ind] for ind in inds_states]
+            states.append(" -- ".join(t_state))
 
+        else:
+            states.append("<nil>")
 
-probs = np.zeros((len(x_star.nonzero()[0])))
-states = []
+        probs[i] = state[stateval]
 
-model.nodes = list(model.model.keys())
+    last_states_probtraj = pd.DataFrame([probs], columns=states)
+    last_states_probtraj.sort_index(axis=1, inplace=True)
 
-for i, stateval in enumerate(x_star.nonzero()[0]):
-
-    binstate = np.zeros((len(model.nodes)))
-    c = len(model.nodes)-1
-    t_stateval = stateval
-
-    while t_stateval > 0:
-        binstate[c] = t_stateval % 2
-        t_stateval = t_stateval // 2
-        c -= 1
-
-    inds_states, = np.where(np.flip(binstate))
-
-    if len(inds_states) > 0:
-        t_state = [model.nodes[ind] for ind in inds_states]
-        states.append(" -- ".join(t_state))
-
-    else:
-        states.append("<nil>")
-
-    probs[i] = x_star[stateval]
-
-last_states_probtraj = pd.DataFrame([probs], columns=states)
-last_states_probtraj.sort_index(axis=1, inplace=True)
-
-print(last_states_probtraj)
+    return last_states_probtraj
