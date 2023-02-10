@@ -32,22 +32,18 @@ class TransitionTable:
         nodes = list(self.model.keys())
         n = len(nodes)
         states_count = 2 ** n
-        states = np.remainder(
-            np.floor(
-                np.multiply(
-                    np.array([range(states_count)]).transpose(),
-                    np.array(
-                        [np.power([2.0]*n, np.array(range(0, -n, -1)))])
-                )
-            ), 2
-        ).astype(bool)
 
-        state_updates = np.array(
-            [
-                self.fcn_gen_node_update(self.model[node], states, nodes)
-                for node in nodes
-            ]
-        ).transpose()
+        states = np.empty((states_count, n), dtype=bool)
+        for i in range(n):
+            a = np.full((2 ** (i + 1)), True)
+            a[:2 ** i] = False
+
+            states[:, i] = np.tile(a, (2 ** (n - i - 1)))
+
+        state_updates = np.empty((states_count, n), dtype=bool)
+        for i in range(n):
+            state_updates[:, i] = self.fcn_gen_node_update(
+                self.model[nodes[i]], states, nodes)
 
         transitions = np.argwhere(
             state_updates != states)
@@ -113,15 +109,12 @@ class InitialState:
         nodes = list(model.model.keys())
         n = len(nodes)
         states_count = 2 ** n
-        states = np.remainder(
-            np.floor(
-                np.multiply(
-                    np.array([range(states_count)]).transpose(),
-                    np.array(
-                        [np.power([2.0]*n, np.array(range(0, -n, -1)))])
-                )
-            ), 2
-        ).astype(bool)
+        states = np.empty((states_count, n), dtype=bool)
+        for i in range(n):
+            a = np.full((2 ** (i + 1)), True)
+            a[:2 ** i] = False
+
+            states[:, i] = np.tile(a, (2 ** (n - i - 1)))
 
         fixed_indices = [nodes.index(f) for f in fixed_nodes]
         fixed_state = [v == 1 for v in fixed_values]
