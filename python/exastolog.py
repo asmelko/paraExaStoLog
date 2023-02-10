@@ -149,19 +149,20 @@ class TransitionGraph:
         self.initial_state = initial_state.x_0
 
     def toposort(self, table):
+        orig_table = table
         ordering = np.empty((table.shape[0]), dtype=int)
-        original_indices = np.arange(table.shape[0], dtype=int)
+        mask = np.full((table.shape[0]), False)
         terminals_idx = None
         fill_idx = table.shape[0]
         while table.shape[0] != 0:
-            mask = np.array(table.sum(axis=0) == 0).flatten()
+            new_mask = np.array(table.sum(axis=0) == 0).flatten()
 
-            indices = original_indices[np.argwhere(mask).flatten()]
+            indices = np.argwhere(new_mask ^ mask).flatten()
             fill_idx -= indices.shape[0]
             ordering[fill_idx: fill_idx + indices.shape[0]] = indices
 
-            original_indices = original_indices[np.argwhere(~mask).flatten()]
-            table = table[~mask, :][:, ~mask]
+            mask = new_mask
+            table = orig_table[~mask, :]
 
             if terminals_idx is None:
                 terminals_idx = fill_idx
