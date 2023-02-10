@@ -149,15 +149,18 @@ class TransitionGraph:
 
     def toposort(self, table):
         ordering = np.empty((table.shape[0]), dtype=int)
+        original_indices = np.arange(table.shape[0], dtype=int)
         terminals_idx = None
         fill_idx = table.shape[0]
         while table.shape[0] != 0:
-            mask = np.array(table.sum(axis=0) == 0)[0]
-            table = table[~mask, :][:, ~mask]
+            mask = np.array(table.sum(axis=0) == 0).flatten()
 
-            indices = np.argwhere(mask).flatten()
+            indices = original_indices[np.argwhere(mask).flatten()]
             fill_idx -= indices.shape[0]
             ordering[fill_idx: fill_idx + indices.shape[0]] = indices
+
+            original_indices = original_indices[np.argwhere(~mask).flatten()]
+            table = table[~mask, :][:, ~mask]
 
             if terminals_idx is None:
                 terminals_idx = fill_idx
@@ -170,15 +173,17 @@ class TransitionGraph:
 
         sccomponents = []
 
+        # All SCCs are single vertices => metagraph = graph
+        if count == table.shape[0]:
+            for i in range(count):
+                sccomponents.append(set([i]))
+            return sccomponents, table
+
         for i in range(count):
             sccomponents.append(set())
 
         for i in range(len(labels)):
             sccomponents[labels[i]].add(i)
-
-        # All SCCs are single vertices => metagraph = graph
-        if count == table.shape[0]:
-            return sccomponents, table
 
         rows, columns = table.nonzero()
 
@@ -323,14 +328,9 @@ class Solution:
         N = K[:terminal_start, :][:, :terminal_start]
         B = K[terminal_start:, :][:, :terminal_start]
 
-        A = -U @ B
-        Bb = N
-
-        scipy.sparse.linalg.use_solver(
-            useUmfpack=True, assumeSortedIndices=False)
-        X = scipy.sparse.linalg.spsolve(
-            Bb.conj().T, A.conj().T,
-            use_umfpack=True).conj().T
+        N_inv = scipy.sparse.linalg.inv(N)
+        
+        X = -U @ B @ N_inv
 
         return scipy.sparse.hstack((X, U))
 
@@ -354,9 +354,9 @@ class Solution:
 # model = Model(join(dirname(__file__), "../data/toy.bnet"))
 # table = TransitionTable(model)
 # table.build_transition_table()
-# graph = TransitionGraph(table)
-# graph.sort()
 # initial_state = InitialState(model, ['A','C', 'D'], [0, 0, 0])
+# graph = TransitionGraph(table, initial_state)
+# graph.sort()
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
@@ -372,27 +372,27 @@ class Solution:
 # model = Model(join(dirname(__file__), "../data/toy3.bnet"))
 # table = TransitionTable(model)
 # table.build_transition_table()
-# graph = TransitionGraph(table)
-# graph.sort()
 # initial_state = InitialState(model, ['A','B'], [0, 0])
+# graph = TransitionGraph(table, initial_state)
+# graph.sort()
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
 # model = Model(join(dirname(__file__), "../data/EMT_cohen_ModNet.bnet"))
 # table = TransitionTable(model)
 # table.build_transition_table()
-# graph = TransitionGraph(table)
-# graph.sort()
 # initial_state = InitialState(model, ['ECMicroenv','DNAdamage','Metastasis','Migration','Invasion','EMT','Apoptosis','Notch_pthw','p53'], [1, 1, 0, 0, 0, 0, 0, 1, 0])
+# graph = TransitionGraph(table, initial_state)
+# graph.sort()
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
 # model = Model(join(dirname(__file__), "../data/mammalian_cc.bnet"))
 # table = TransitionTable(model)
 # table.build_transition_table()
-# graph = TransitionGraph(table)
-# graph.sort()
 # initial_state = InitialState(model, ['CycE','CycA','CycB','Cdh1','Rb_b1','Rb_b2','p27_b1','p27_b2'], [0, 0, 0, 1, 1, 1, 1, 1])
+# graph = TransitionGraph(table, initial_state)
+# graph.sort()
 # solution = Solution(graph, initial_state, len(model.model.keys()))
 # x_star = solution.compute_final_states()
 
