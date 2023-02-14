@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import heapq
+import sortednp
 import sympy
 import scipy
 
@@ -93,14 +93,8 @@ class TransitionTable:
 
                 node_transitions.append(clause_transitions)
 
-            node_transitions = np.array(list(heapq.merge(
-                *node_transitions)))
-            
-            if node_transitions.shape[0] != 0:
-                unq_first = np.concatenate(
-                    ([True], node_transitions[1:] != node_transitions[:-1]))
-
-                node_transitions = node_transitions[unq_first]
+            node_transitions = sortednp.kway_merge(
+                *node_transitions, duplicates=sortednp.DROP)
 
             return node_transitions
 
