@@ -106,14 +106,10 @@ class TransitionTable:
         dnf_clauses = self.to_dnf(~formula)
         down_transitions_src = get_transitions(dnf_clauses, False)
 
-        up_trans_src_len = up_transitions_src.shape[0]
-        transitions_src = np.concatenate(
-            [up_transitions_src, down_transitions_src])
-
+        transitions_src, (inds1, inds2) = sortednp.merge(up_transitions_src, down_transitions_src, indices=True)
         transitions_dst = np.empty((transitions_src.shape[0]))
-        transitions_dst[:up_trans_src_len] = transitions_src[:
-                                                             up_trans_src_len] + 2 ** node_idx
-        transitions_dst[up_trans_src_len:] = transitions_src[up_trans_src_len:] - 2 ** node_idx
+        transitions_dst[inds1] = up_transitions_src + 2 ** node_idx
+        transitions_dst[inds2] = down_transitions_src - 2 ** node_idx
 
         return transitions_src, transitions_dst
 
@@ -124,30 +120,44 @@ class TransitionTable:
 
         node_values = 2 ** np.arange(n, dtype=int)
 
-        transitions_src = []
-        transitions_dst = []
+        transitions_src_list = []
+        transitions_dst_list = []
 
         for node_idx in range(n):
             node_tr_src, node_tr_dst = self.get_node_transitions(
                 node_idx, nodes, node_values)
 
-            transitions_src.append(node_tr_src)
-            transitions_dst.append(node_tr_dst)
+            transitions_src_list.append(node_tr_src)
+            transitions_dst_list.append(node_tr_dst)
 
-        transitions_src = np.concatenate(transitions_src)
-        transitions_dst = np.concatenate(transitions_dst)
+        tmp = transitions_src_list
+        transitions_src_list = transitions_dst_list
+        transitions_dst_list = tmp
 
-        self.transition_table = scipy.sparse.csr_matrix(
+        transitions_src = transitions_src_list[0]
+        transitions_dst = transitions_dst_list[0]
+
+        for i in range(1, len(transitions_dst_list)):
+            transitions_dst, (inds1, inds2) = sortednp.merge(transitions_dst, transitions_dst_list[i], indices=True)
+            
+            transitions_src_tmp = np.empty((transitions_dst.shape[0]))
+            transitions_src_tmp[inds1] = transitions_src
+            transitions_src_tmp[inds2] = transitions_src_list[i]
+            transitions_src = transitions_src_tmp
+
+        unq_first = np.concatenate(
+            ([True], transitions_dst[1:] != transitions_dst[:-1], [True]))
+        unq_count = np.diff(np.nonzero(unq_first)[0])
+        unq_count2 = np.zeros((states_count + 1))
+        unq_count2[transitions_dst[np.nonzero(unq_first)[0][:-1]] + 1] = unq_count
+        transitions_dst = np.cumsum(unq_count2)
+
+        self.transition_table = scipy.sparse.csc_matrix(
             (
-                np.ones((len(transitions_dst))),
-                (transitions_dst,
-                 transitions_src)
+                np.ones((transitions_src.shape[0])), transitions_src, transitions_dst
             ),
             shape=(states_count, states_count)
         )
-
-        self.transition_table.data = np.ones(
-            (self.transition_table.data.shape[0]))
 
 
 class InitialState:
