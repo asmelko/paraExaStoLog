@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
-import boolean
+import heapq
+import sympy
 import scipy
 
 
@@ -11,13 +12,13 @@ class Model:
 
     def readBNet(self, filename):
         model = {}
-        algebra = boolean.BooleanAlgebra()
         with open(filename, 'r') as f:
             lines = f.readlines()
             del lines[0]
             for line in lines:
                 species, formula = [value.strip() for value in line.split(",")]
-                b_formula = algebra.parse(formula).simplify()
+                b_formula = sympy.parsing.sympy_parser.parse_expr(
+                    formula.replace('!', '~')).simplify()
                 model.update({species: b_formula})
 
         return model
@@ -28,79 +29,131 @@ class TransitionTable:
     def __init__(self, model: Model):
         self.model = model.model
 
+    def to_dnf(self, formula):
+        dnf = sympy.logic.boolalg.to_dnf(formula, simplify=True)
+
+        if not isinstance(dnf, sympy.logic.boolalg.Or):
+            clauses_tmp = dnf,
+        else:
+            clauses_tmp = dnf.args
+
+        clauses = []
+        for clause in clauses_tmp:
+            if not isinstance(clause, sympy.logic.boolalg.And):
+                args = clause,
+            else:
+                args = clause.args
+
+            clause_map = {}
+            for arg in args:
+                clause_map.update(
+                    {str(arg.free_symbols.pop()): not isinstance(arg, sympy.logic.boolalg.Not)})
+
+            clauses.append(clause_map)
+
+        return clauses
+
+    def get_node_transitions(self, node_idx, nodes, node_values):
+        def get_transitions(formula, up_down):
+            node_transitions = [np.empty((0), dtype=int)]
+
+            for clause in formula:
+                # no change
+                if nodes[node_idx] in clause.keys() and clause[nodes[node_idx]] == up_down:
+                    continue
+
+                contributing_nodes_idxs = []
+                contributing_nodes_vals = []
+                for arg in clause.keys():
+                    contributing_nodes_idxs.append(nodes.index(arg))
+                    contributing_nodes_vals.append(clause[arg])
+
+                if nodes[node_idx] not in clause.keys():
+                    contributing_nodes_idxs.append(node_idx)
+                    contributing_nodes_vals.append(not up_down)
+
+                static_val = np.sum(
+                    node_values[contributing_nodes_idxs] * contributing_nodes_vals)
+
+                not_contributing_count = len(
+                    nodes) - len(contributing_nodes_idxs)
+                clause_transitions = np.empty(
+                    (2 ** not_contributing_count), dtype=int)
+                clause_transitions[0] = static_val
+
+                states_len = 1
+                for not_contributing_idx in range(len(nodes)):
+                    if not_contributing_idx in contributing_nodes_idxs:
+                        continue
+
+                    clause_transitions[states_len: 2 *
+                                       states_len] = clause_transitions[: states_len] + 2 ** not_contributing_idx
+
+                    states_len *= 2
+
+                node_transitions.append(clause_transitions)
+
+            node_transitions = np.array(list(heapq.merge(
+                *node_transitions)))
+            
+            if node_transitions.shape[0] != 0:
+                unq_first = np.concatenate(
+                    ([True], node_transitions[1:] != node_transitions[:-1]))
+
+                node_transitions = node_transitions[unq_first]
+
+            return node_transitions
+
+        formula = self.model[nodes[node_idx]]
+
+        dnf_clauses = self.to_dnf(formula)
+        up_transitions_src = get_transitions(dnf_clauses, True)
+
+        dnf_clauses = self.to_dnf(~formula)
+        down_transitions_src = get_transitions(dnf_clauses, False)
+
+        up_trans_src_len = up_transitions_src.shape[0]
+        transitions_src = np.concatenate(
+            [up_transitions_src, down_transitions_src])
+
+        transitions_dst = np.empty((transitions_src.shape[0]))
+        transitions_dst[:up_trans_src_len] = transitions_src[:
+                                                             up_trans_src_len] + 2 ** node_idx
+        transitions_dst[up_trans_src_len:] = transitions_src[up_trans_src_len:] - 2 ** node_idx
+
+        return transitions_src, transitions_dst
+
     def build_transition_table(self):
         nodes = list(self.model.keys())
         n = len(nodes)
         states_count = 2 ** n
 
-        states = np.empty((states_count, n), dtype=bool)
-        for i in range(n):
-            a = np.full((2 ** (i + 1)), True)
-            a[:2 ** i] = False
+        node_values = 2 ** np.arange(n, dtype=int)
 
-            states[:, i] = np.tile(a, (2 ** (n - i - 1)))
+        transitions_src = []
+        transitions_dst = []
 
-        state_updates = np.empty((states_count, n), dtype=bool)
-        for i in range(n):
-            state_updates[:, i] = self.fcn_gen_node_update(
-                self.model[nodes[i]], states, nodes)
+        for node_idx in range(n):
+            node_tr_src, node_tr_dst = self.get_node_transitions(
+                node_idx, nodes, node_values)
 
-        transitions = np.argwhere(
-            state_updates != states)
+            transitions_src.append(node_tr_src)
+            transitions_dst.append(node_tr_dst)
 
-        transitions_src = transitions[:, 0]
-        transitions_dest = np.empty((transitions.shape[0]))
-
-        up_transition_mask = state_updates[transitions[:,
-                                                       0], transitions[:, 1]] == True
-
-        transitions_dest[up_transition_mask] = transitions[up_transition_mask,
-                                                           0] + 2 ** transitions[up_transition_mask, 1]
-        transitions_dest[~up_transition_mask] = transitions[~up_transition_mask,
-                                                            0] - 2 ** transitions[~up_transition_mask, 1]
+        transitions_src = np.concatenate(transitions_src)
+        transitions_dst = np.concatenate(transitions_dst)
 
         self.transition_table = scipy.sparse.csr_matrix(
             (
-                np.ones((len(transitions_dest))),
-                (transitions_dest,
+                np.ones((len(transitions_dst))),
+                (transitions_dst,
                  transitions_src)
             ),
             shape=(states_count, states_count)
         )
 
-    def fcn_gen_node_update(self, formula, list_binary_states, nodes):
-
-        if isinstance(formula, boolean.boolean.Symbol):
-            return list_binary_states[:, nodes.index(str(formula))]
-
-        elif isinstance(formula, boolean.boolean.NOT):
-            return np.logical_not(
-                self.fcn_gen_node_update(
-                    formula.args[0], list_binary_states, nodes)
-            )
-
-        elif isinstance(formula, boolean.boolean.OR):
-            ret = self.fcn_gen_node_update(
-                formula.args[0], list_binary_states, nodes)
-            for i in range(1, len(formula.args)):
-                ret = np.logical_or(ret,
-                                    self.fcn_gen_node_update(
-                                        formula.args[i], list_binary_states, nodes)
-                                    )
-            return ret
-
-        elif isinstance(formula, boolean.boolean.AND):
-            ret = self.fcn_gen_node_update(
-                formula.args[0], list_binary_states, nodes)
-            for i in range(1, len(formula.args)):
-                ret = np.logical_and(ret,
-                                     self.fcn_gen_node_update(
-                                         formula.args[i], list_binary_states, nodes)
-                                     )
-            return ret
-
-        else:
-            print("Unknown boolean operator : %s" % type(formula))
+        self.transition_table.data = np.ones(
+            (self.transition_table.data.shape[0]))
 
 
 class InitialState:
@@ -302,7 +355,7 @@ class Solution:
             if scc_size == 1:
                 data[i] = 1
             else:
-                data[i: scc_size] = self.compute_scc_kernel(
+                data[i: i + scc_size] = self.compute_scc_kernel(
                     table, terminal_offsets, i)
 
         return scipy.sparse.csr_matrix((data, indices, indptrs), shape=(table.shape[0], terminals_count))
