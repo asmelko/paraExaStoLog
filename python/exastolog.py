@@ -186,24 +186,16 @@ class TransitionGraph:
         self.sorted_subgraphs = []
         self.initial_state = initial_state.x_0
 
-    def toposort(self, table):
-        orig_table = table
+    def weak_toposort(self, table):
         ordering = np.empty((table.shape[0]), dtype=int)
-        mask = np.full((table.shape[0]), False)
         terminals_idx = None
-        fill_idx = table.shape[0]
-        while table.shape[0] != 0:
-            new_mask = np.array(table.sum(axis=0) == 0).flatten()
+        
+        terminal_mask = np.array(table.sum(axis=0) == 0).flatten()
 
-            indices = np.argwhere(new_mask ^ mask).flatten()
-            fill_idx -= indices.shape[0]
-            ordering[fill_idx: fill_idx + indices.shape[0]] = indices
-
-            mask = new_mask
-            table = orig_table[~mask, :]
-
-            if terminals_idx is None:
-                terminals_idx = fill_idx
+        indices = np.argwhere(terminal_mask).flatten()
+        ordering[-indices.shape[0]:] = indices
+        ordering[:-indices.shape[0]] = np.argwhere(~terminal_mask).flatten()
+        terminals_idx = table.shape[0] - indices.shape[0] 
 
         return ordering, terminals_idx
 
@@ -276,7 +268,7 @@ class TransitionGraph:
                     (subgraph_indices, subtable, [0, subnodes_count], list(range(subnodes_count))))
                 continue
 
-            sccs_ordering, terminal_start_idx = self.toposort(metagraph)
+            sccs_ordering, terminal_start_idx = self.weak_toposort(metagraph)
 
             sorted_subtable, sorted_subvertices = self.build_sorted_transition_table(subtable,
                                                                                      sccs, sccs_ordering)
