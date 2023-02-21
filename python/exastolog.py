@@ -106,16 +106,7 @@ class TransitionTable:
         dnf_clauses = self.to_dnf(~formula)
         down_transitions_src = get_transitions(dnf_clauses, False)
 
-        up_trans_src_len = up_transitions_src.shape[0]
-        transitions_src = np.concatenate(
-            [up_transitions_src, down_transitions_src])
-
-        transitions_dst = np.empty((transitions_src.shape[0]))
-        transitions_dst[:up_trans_src_len] = transitions_src[:
-                                                             up_trans_src_len] + 2 ** node_idx
-        transitions_dst[up_trans_src_len:] = transitions_src[up_trans_src_len:] - 2 ** node_idx
-
-        return transitions_src, transitions_dst
+        return up_transitions_src, down_transitions_src
 
     def build_transition_table(self):
         nodes = list(self.model.keys())
@@ -125,17 +116,27 @@ class TransitionTable:
         node_values = 2 ** np.arange(n, dtype=int)
 
         transitions_src = []
-        transitions_dst = []
+        transitions_src_lens = []
 
         for node_idx in range(n):
-            node_tr_src, node_tr_dst = self.get_node_transitions(
+            node_tr_up, node_tr_down = self.get_node_transitions(
                 node_idx, nodes, node_values)
 
-            transitions_src.append(node_tr_src)
-            transitions_dst.append(node_tr_dst)
+            transitions_src_lens.append(node_tr_up.shape[0])
+            transitions_src_lens.append(node_tr_down.shape[0])
+            transitions_src.append(node_tr_up)
+            transitions_src.append(node_tr_down)
 
         transitions_src = np.concatenate(transitions_src)
-        transitions_dst = np.concatenate(transitions_dst)
+
+        transitions_dst = np.empty((transitions_src.shape[0]), dtype=int)
+        offset = 0
+        for i in range(2 * n):
+            sign = 1 if i % 2 == 0 else -1
+            power = i // 2
+            transitions_dst[offset: offset + transitions_src_lens[i]
+                            ] = transitions_src[offset: offset + transitions_src_lens[i]] + sign * (2 ** power)
+            offset += transitions_src_lens[i]
 
         self.transition_table = scipy.sparse.csr_matrix(
             (
@@ -145,9 +146,6 @@ class TransitionTable:
             ),
             shape=(states_count, states_count)
         )
-
-        self.transition_table.data = np.ones(
-            (self.transition_table.data.shape[0]))
 
 
 class InitialState:
