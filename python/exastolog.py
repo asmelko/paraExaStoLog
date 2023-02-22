@@ -3,6 +3,11 @@ import sortednp
 import pyeda.inter
 import scipy
 
+# sympy import takes forever
+# but for some cases, to_dnf method performs better than the one of pyeda
+# this flag therefore enables sympy use instead of pyeda
+USE_SYMPY = False
+
 
 class Model:
 
@@ -16,9 +21,7 @@ class Model:
             del lines[0]
             for line in lines:
                 species, formula = [value.strip() for value in line.split(",")]
-                b_formula = pyeda.inter.expr(
-                    formula.replace('!', '~')).simplify()
-                model.update({species: b_formula})
+                model.update({species: formula})
 
         return model
 
@@ -28,20 +31,52 @@ class TransitionTable:
     def __init__(self, model: Model):
         self.model = model.model
 
-    def to_dnf(self, formula):
-        f = formula.to_dnf().simplify()
-        _, _, clauses_tmp = f.encode_dnf()
+    def to_dnf(self, formula_str):
 
-        clauses = []
-        for clause in clauses_tmp:
-            clause_map = {}
-            for arg in clause:
-                clause_map.update(
-                    {str(f.inputs[abs(arg) - 1]): True if arg > 0 else False})
+        if not USE_SYMPY:
+            formula = pyeda.inter.expr(
+                formula_str.replace('!', '~')).simplify()
+            formula = formula.to_dnf()
+            _, _, clauses_tmp = formula.encode_dnf()
 
-            clauses.append(clause_map)
+            clauses = []
+            for clause in clauses_tmp:
+                clause_map = {}
+                for arg in clause:
+                    clause_map.update(
+                        {str(formula.inputs[abs(arg) - 1]): True if arg > 0 else False})
 
-        return clauses
+                clauses.append(clause_map)
+
+            return clauses
+        else:
+            import sympy
+
+            formula = sympy.parsing.sympy_parser.parse_expr(
+                formula_str.replace('!', '~')).simplify()
+
+            dnf = sympy.logic.boolalg.to_dnf(formula)
+
+            if not isinstance(dnf, sympy.logic.boolalg.Or):
+                clauses_tmp = dnf,
+            else:
+                clauses_tmp = dnf.args
+
+            clauses = []
+            for clause in clauses_tmp:
+                if not isinstance(clause, sympy.logic.boolalg.And):
+                    args = clause,
+                else:
+                    args = clause.args
+
+                clause_map = {}
+                for arg in args:
+                    clause_map.update(
+                        {str(arg.free_symbols.pop()): not isinstance(arg, sympy.logic.boolalg.Not)})
+
+                clauses.append(clause_map)
+
+            return clauses
 
     def get_node_transitions(self, node_idx, nodes, node_values):
         def get_transitions(formula, up_down):
@@ -93,7 +128,7 @@ class TransitionTable:
         dnf_clauses = self.to_dnf(formula)
         up_transitions_src = get_transitions(dnf_clauses, True)
 
-        dnf_clauses = self.to_dnf(~formula)
+        dnf_clauses = self.to_dnf(f"!({formula})")
         down_transitions_src = get_transitions(dnf_clauses, False)
 
         up_trans_src_len = up_transitions_src.shape[0]
