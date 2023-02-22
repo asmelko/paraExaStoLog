@@ -1,0 +1,11 @@
+Bootstrap: docker
+From: nvidia/cuda:11.6.2-devel-ubuntu20.04
+Stage: build
+
+%post
+    apt-get update -y
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pip libsuitesparse-dev swig
+    pip3 install pandas numpy sympy scipy boolean.py 
+    pip3 install sortednp scikit-umfpack py-spy
+    pip3 install cupy-cuda11x
+    pip3 install cugraph-cu11 --extra-index-url=https://pypi.nvidia.com

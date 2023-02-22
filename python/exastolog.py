@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import cupy as cp
+import cupyx.scipy.sparse.csgraph
 import sortednp
 import sympy
 import scipy
@@ -139,17 +140,17 @@ class TransitionTable:
                             ] = transitions_src[offset: offset + transitions_src_lens[i]] + sign * (2 ** power)
             offset += transitions_src_lens[i]
 
-        device_transitions_src = cp.array(transitions_src)
-        device_transitions_dst = cp.array(transitions_dst)
+        device_transitions_src = cp.asarray(transitions_src)
+        device_transitions_dst = cp.asarray(transitions_dst)
 
-        self.device_transition_table = cp.scipy.sparse.csr_matrix(
+        self.transition_table = cupyx.scipy.sparse.csr_matrix(
             (
                 cp.ones((len(transitions_dst))),
                 (device_transitions_dst,
                  device_transitions_src)
             ),
             shape=(states_count, states_count)
-        )
+        ).get()
 
 
 class InitialState:
@@ -186,8 +187,7 @@ class InitialState:
 class TransitionGraph:
 
     def __init__(self, table: TransitionTable, initial_state: InitialState):
-        self.device_table = table.device_transition_table
-        self.table = table.device_transition_table.get()
+        self.table = table.transition_table
         self.sorted_subgraphs = []
         self.initial_state = initial_state.x_0
 
@@ -247,10 +247,8 @@ class TransitionGraph:
         return original_table[sorted_vertices, :][:, sorted_vertices], sorted_vertices
 
     def sort(self):
-        count, device_disconnected_subgraphs = cp.scipy.sparse.csgraph.connected_components(
-            self.device_table, directed=True, connection='weak')
-
-        disconnected_subgraphs = device_disconnected_subgraphs.get()
+        count, disconnected_subgraphs = scipy.sparse.csgraph.connected_components(
+            self.table, directed=True, connection='weak')
 
         for i in range(count):
             subgraph_indices = np.argwhere(
@@ -265,7 +263,7 @@ class TransitionGraph:
             subnodes_count = len(subgraph_indices)
 
             if (subnodes_count == 1):
-                self.sorted_subgraphs.append((1, [[0]], [0, 1], [0]))
+                self.sorted_subgraphs.append(([0], [[0]], [0, 1], [0]))
                 continue
 
             sccs, metagraph = self.create_metagraph(subtable)
