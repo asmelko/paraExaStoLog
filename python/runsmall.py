@@ -10,4 +10,5 @@ for f in glob.glob("data/database-small/*"):
     graph.sort()
     solution = Solution(graph, initial_state, len(model.model.keys()))
     x_star = solution.compute_final_states()
-    print(state_to_df(x_star, list(model.model.keys())))
+    p = state_to_human_readable(x_star, list(model.model.keys()))
+    print(p)
