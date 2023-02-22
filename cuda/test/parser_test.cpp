@@ -1,9 +1,10 @@
 #include <gtest/gtest.h>
 
-#include "bnet_parser.h"
+#include "model.h"
 
 TEST(parser, valid)
 {
-	auto res = bnet_parser::parse("data/toy.bnet");
-	ASSERT_EQ(res.size(), 3);
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+	ASSERT_EQ(model.dnfs.size(), 3);
 }
