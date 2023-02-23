@@ -1,8 +1,6 @@
-#include "transition_table.h"
-
 #include <thrust/set_operations.h>
 
-using d_idxvec = thrust::device_vector<index_t>;
+#include "transition_table.cuh"
 
 struct transition_ftor : public thrust::unary_function<index_t, index_t>
 {
@@ -28,7 +26,7 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 
 d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 {
-	d_idxvec transitions(0);
+	d_idxvec transitions;
 
 	for (const auto& c : clauses)
 	{
@@ -45,10 +43,6 @@ d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 
 		d_idxvec tmp(transitions.size() + single_clause_transitions.size());
 
-		auto tmp_end = thrust::set_union(transitions.begin(), transitions.end(), single_clause_transitions.begin(),
-										 single_clause_transitions.end(), tmp.begin());
-
-		tmp.resize(tmp_end - tmp.begin());
 
 		std::swap(tmp, transitions);
 	}
@@ -64,7 +58,22 @@ struct flip_ftor : public thrust::unary_function<index_t, index_t>
 	__host__ __device__ index_t operator()(index_t x) const { return x ^ mask; }
 };
 
-void transition_table::compute_rows_and_cols()
+void transition_table::construct_table()
+{
+	auto [trans_src, trans_dst] = compute_rows_and_cols();
+
+	int matrix_size = (int)(1ULL << model_.nodes.size());
+	CHECK_CUSPARSE(cusparseXcoosortByRow(context_.cusparse_handle, matrix_size, matrix_size, (int)trans_src.size(),
+										 trans_dst.data().get(), trans_src.data().get(), nullptr, nullptr));
+
+	indices = std::move(trans_dst);
+	indptr = d_idxvec(matrix_size + 1);
+
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, indices.data().get(), (int)indices.size(), matrix_size,
+									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+}
+
+std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()
 {
 	std::vector<d_idxvec> ups, downs;
 
@@ -97,6 +106,8 @@ void transition_table::compute_rows_and_cols()
 		dst_begin = thrust::copy(thrust::make_transform_iterator(downs[i].begin(), flip_ftor(1ULL << i)),
 								 thrust::make_transform_iterator(downs[i].end(), flip_ftor(1ULL << i)), dst_begin);
 	}
+
+	return std::make_pair(std::move(trans_src), std::move(trans_dst));
 }
 
-transition_table::transition_table(model_t model) : model_(std::move(model)) {}
+transition_table::transition_table(cu_context& context, model_t model) : context_(context), model_(std::move(model)) {}

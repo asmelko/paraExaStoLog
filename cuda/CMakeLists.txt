@@ -17,9 +17,11 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-file(GLOB_RECURSE src_files "src/*.cpp")
+file(GLOB_RECURSE src_files "src/*")
 list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 add_library(exaStoLogLib ${src_files})
+target_link_libraries(exaStoLogLib cusparse)
+
 
 add_executable(cudaExaStoLog src/main.cpp)
 target_link_libraries(cudaExaStoLog exaStoLogLib)
@@ -37,16 +39,16 @@ endforeach()
 
 target_include_directories(exaStoLogLib PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
-target_include_directories(unit_cudaExaStoLog PUBLIC 
+target_include_directories(unit_cudaExaStoLog PUBLIC
 	"src")
 
-target_link_libraries(unit_cudaExaStoLog PRIVATE 
+target_link_libraries(unit_cudaExaStoLog PRIVATE
 	gtest_main exaStoLogLib)
 
 add_custom_command(TARGET unit_cudaExaStoLog POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/../data $<TARGET_FILE_DIR:${PROJECT_NAME}>/data)
-	
+
 enable_testing()
 include(GoogleTest)
 gtest_discover_tests(unit_cudaExaStoLog)

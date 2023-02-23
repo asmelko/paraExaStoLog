@@ -5,10 +5,10 @@
 
 #include "boolstuff/BoolExprParser.h"
 
-std::vector<uint64_t> clause_t::get_free_variables() const
+std::vector<index_t> clause_t::get_free_variables() const
 {
-	std::vector<uint64_t> ret;
-	for (size_t i = 0; i < variables_count; i++)
+	std::vector<index_t> ret;
+	for (int i = 0; i < variables_count; i++)
 	{
 		if (std::find(positive_variables.begin(), positive_variables.end(), i) != positive_variables.end()
 			&& std::find(negative_variables.begin(), negative_variables.end(), i) != negative_variables.end())
@@ -18,9 +18,9 @@ std::vector<uint64_t> clause_t::get_free_variables() const
 	return ret;
 }
 
-uint64_t clause_t::get_fixed_part() const
+index_t clause_t::get_fixed_part() const
 {
-	uint64_t fixed = 0;
+	index_t fixed = 0;
 	for (auto var : positive_variables)
 	{
 		fixed += 1ULL << var;
@@ -49,14 +49,14 @@ std::vector<clause_t> model_builder::construct_clauses(const std::string& target
 	for (IT it = termRoots.begin(); it != termRoots.end(); it++)
 	{
 		clause_t clause;
-		clause.variables_count = targets.size();
+		clause.variables_count = (int)targets.size();
 
 		const boolstuff::BoolExpr<std::string>* term = *it;
 		std::set<std::string> positives, negatives;
 		term->getTreeVariables(positives, negatives);
 
-		auto indexize = [&targets](const std::set<std::string>& targets_set, std::vector<uint64_t>& target_indices) {
-			for (size_t i = 0; i < targets.size(); i++)
+		auto indexize = [&targets](const std::set<std::string>& targets_set, std::vector<index_t>& target_indices) {
+			for (int i = 0; i < targets.size(); i++)
 			{
 				if (targets_set.find(targets[i]) != targets_set.end())
 					target_indices.push_back(i);
