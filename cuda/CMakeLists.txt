@@ -22,7 +22,6 @@ list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 add_library(exaStoLogLib ${src_files})
 target_link_libraries(exaStoLogLib cusparse)
 
-
 add_executable(cudaExaStoLog src/main.cpp)
 target_link_libraries(cudaExaStoLog exaStoLogLib)
 
@@ -43,7 +42,7 @@ target_include_directories(unit_cudaExaStoLog PUBLIC
 	"src")
 
 target_link_libraries(unit_cudaExaStoLog PRIVATE
-	gtest_main exaStoLogLib)
+	gtest_main gmock_main exaStoLogLib)
 
 add_custom_command(TARGET unit_cudaExaStoLog POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
