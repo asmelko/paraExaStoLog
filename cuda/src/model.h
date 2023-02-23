@@ -6,10 +6,17 @@
 
 #include "boolstuff/BoolExprParser.h"
 
+using index_t = uint64_t;
+
 struct clause_t
 {
-	std::vector<uint64_t> positive_variables;
-	std::vector<uint64_t> negative_variables;
+	size_t variables_count;
+
+	std::vector<index_t> positive_variables;
+	std::vector<index_t> negative_variables;
+
+	std::vector<index_t> get_free_variables() const;
+	uint64_t get_fixed_part() const;
 };
 
 struct transition_formulae_t

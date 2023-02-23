@@ -1,15 +1,40 @@
+#include "model.h"
+
 #include <algorithm>
 #include <fstream>
 
 #include "boolstuff/BoolExprParser.h"
-#include "model.h"
+
+std::vector<uint64_t> clause_t::get_free_variables() const
+{
+	std::vector<uint64_t> ret;
+	for (size_t i = 0; i < variables_count; i++)
+	{
+		if (std::find(positive_variables.begin(), positive_variables.end(), i) != positive_variables.end()
+			&& std::find(negative_variables.begin(), negative_variables.end(), i) != negative_variables.end())
+			ret.push_back(i);
+	}
+
+	return ret;
+}
+
+uint64_t clause_t::get_fixed_part() const
+{
+	uint64_t fixed = 0;
+	for (auto var : positive_variables)
+	{
+		fixed += 1ULL << var;
+	}
+
+	return fixed;
+}
 
 std::vector<clause_t> model_builder::construct_clauses(const std::string& target, const std::string& factors,
 													   const std::vector<std::string>& targets, bool activate)
 {
 	std::vector<clause_t> clauses;
 
-	boolstuff::BoolExpr<std::string>* expr = parser_.construct_model(factors);
+	boolstuff::BoolExpr<std::string>* expr = parser_.parse(factors);
 
 	boolstuff::BoolExpr<std::string>* dnf = boolstuff::BoolExpr<std::string>::getDisjunctiveNormalForm(expr);
 
@@ -24,19 +49,17 @@ std::vector<clause_t> model_builder::construct_clauses(const std::string& target
 	for (IT it = termRoots.begin(); it != termRoots.end(); it++)
 	{
 		clause_t clause;
+		clause.variables_count = targets.size();
 
 		const boolstuff::BoolExpr<std::string>* term = *it;
 		std::set<std::string> positives, negatives;
 		term->getTreeVariables(positives, negatives);
 
 		auto indexize = [&targets](const std::set<std::string>& targets_set, std::vector<uint64_t>& target_indices) {
-			for (const auto& t : targets_set)
+			for (size_t i = 0; i < targets.size(); i++)
 			{
-				auto it = std::find(targets.begin(), targets.end(), t);
-
-				auto idx = std::distance(targets.begin(), it);
-
-				target_indices.push_back(idx);
+				if (targets_set.find(targets[i]) != targets_set.end())
+					target_indices.push_back(i);
 			}
 		};
 

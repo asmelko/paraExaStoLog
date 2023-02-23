@@ -1,9 +1,12 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.18)
 
-project(cppExaStoLog VERSION 0.1 LANGUAGES CXX)
+project(cudaExaStoLog VERSION 0.1 LANGUAGES CUDA CXX)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -14,19 +17,17 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-find_package(Boost REQUIRED)
-
 file(GLOB_RECURSE src_files "src/*.cpp")
 list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 add_library(exaStoLogLib ${src_files})
 
-add_executable(cppExaStoLog src/main.cpp)
-target_link_libraries(cppExaStoLog exaStoLogLib)
+add_executable(cudaExaStoLog src/main.cpp)
+target_link_libraries(cudaExaStoLog exaStoLogLib)
 
 file(GLOB_RECURSE test_files "test/*")
-add_executable(unit_cppExaStoLog ${test_files})
+add_executable(unit_cudaExaStoLog ${test_files})
 
-foreach(executable cppExaStoLog unit_cppExaStoLog exaStoLogLib)
+foreach(executable cudaExaStoLog unit_cudaExaStoLog exaStoLogLib)
 	if(MSVC)
 		target_compile_options(${executable} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/W4 /bigobj>)
 	else()
@@ -34,18 +35,18 @@ foreach(executable cppExaStoLog unit_cppExaStoLog exaStoLogLib)
 	endif()
 endforeach()
 
-target_include_directories(cppExaStoLog PUBLIC ${Boost_INCLUDE_DIR})
+target_include_directories(exaStoLogLib PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
-target_include_directories(unit_cppExaStoLog PUBLIC 
+target_include_directories(unit_cudaExaStoLog PUBLIC 
 	"src")
 
-target_link_libraries(unit_cppExaStoLog PRIVATE 
+target_link_libraries(unit_cudaExaStoLog PRIVATE 
 	gtest_main exaStoLogLib)
 
-add_custom_command(TARGET unit_cppExaStoLog POST_BUILD
+add_custom_command(TARGET unit_cudaExaStoLog POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/../data $<TARGET_FILE_DIR:${PROJECT_NAME}>/data)
 	
 enable_testing()
 include(GoogleTest)
-gtest_discover_tests(unit_cppExaStoLog)
+gtest_discover_tests(unit_cudaExaStoLog)
