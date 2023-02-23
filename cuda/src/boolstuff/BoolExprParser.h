@@ -104,7 +104,7 @@ public:
         @returns        the root of the created tree
         @throws Error   describes a parsing error
     */
-    BoolExpr<std::string> *construct_model(const std::string &expr);
+	BoolExpr<std::string>* parse(const std::string& expr);
 
 private:
 

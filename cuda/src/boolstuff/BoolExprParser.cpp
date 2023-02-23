@@ -62,7 +62,7 @@ BoolExprParser::~BoolExprParser()
 
 
 BoolExpr<string> *
-BoolExprParser::construct_model(const std::string &expr)
+BoolExprParser::parse(const std::string &expr)
 {
     curInput = expr;
     curIndex = 0;
