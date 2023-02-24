@@ -28,7 +28,7 @@ ExternalProject_Add(cugraph
   GIT_REPOSITORY    https://github.com/rapidsai/cugraph.git
   GIT_TAG           v23.02.00
   SOURCE_SUBDIR cpp
-  BUILD_COMMAND ${CMAKE_COMMAND} --build . --target cugraph
+  BUILD_COMMAND ${CMAKE_COMMAND} --build . --target cugraph -j ${CMAKE_BUILD_PARALLEL_LEVEL}
   CMAKE_ARGS -DBUILD_TESTS=OFF -DUSE_CUGRAPH_OPS=OFF -DCUGRAPH_COMPILE_RAFT_DIST_LIBS=OFF -DCUGRAPH_EXCLUDE_CUGRAPH_OPS_FROM_ALL=ON
 )
 
