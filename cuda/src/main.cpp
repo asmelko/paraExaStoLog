@@ -1,5 +1,4 @@
 #include "model.h"
-
 #include "transition_table.cuh"
 
 int main(int argc, char** argv)

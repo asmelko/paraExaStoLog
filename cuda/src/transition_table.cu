@@ -1,6 +1,5 @@
-#include <thrust/set_operations.h>
-
 #include <thrust/host_vector.h>
+#include <thrust/set_operations.h>
 
 #include "transition_table.cuh"
 
@@ -55,7 +54,8 @@ d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 
 		d_idxvec tmp(transitions.size() + single_clause_transitions.size());
 
-		auto tmp_end = thrust::set_union(transitions.begin(), transitions.end(), single_clause_transitions.begin(), single_clause_transitions.end(), tmp.begin());
+		auto tmp_end = thrust::set_union(transitions.begin(), transitions.end(), single_clause_transitions.begin(),
+										 single_clause_transitions.end(), tmp.begin());
 
 		tmp.resize(tmp_end - tmp.begin());
 
@@ -87,7 +87,7 @@ void transition_table::construct_table()
 												  &buffersize));
 
 	void* d_buffer;
-	cudaMalloc( &d_buffer, buffersize);
+	cudaMalloc(&d_buffer, buffersize);
 
 	d_idxvec P(trans_src.size());
 	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, P.size(), P.data().get()));
@@ -98,8 +98,8 @@ void transition_table::construct_table()
 	indices = std::move(trans_src);
 	indptr = d_idxvec(matrix_size + 1);
 
-	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, trans_dst.data().get(), (int)trans_dst.size(), matrix_size,
-									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, trans_dst.data().get(), (int)trans_dst.size(),
+									matrix_size, indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
 }
 
 std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()

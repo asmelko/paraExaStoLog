@@ -1,6 +1,6 @@
-#include "cu_context.cuh"
-
 #include <iostream>
+
+#include "cu_context.cuh"
 
 void cuda_check(cudaError_t e, const char* file, int line)
 {
