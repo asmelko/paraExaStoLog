@@ -19,7 +19,7 @@ FetchContent_MakeAvailable(googletest)
 
 include(ExternalProject)
 
-set(CUGRAPH_INSTALL_DIR ${CMAKE_CURRENT_BUILD_DIR}/cugraph)
+set(CUGRAPH_INSTALL_DIR ${CMAKE_BINARY_DIR}/cugraph)
 ExternalProject_Add(cugraph
   GIT_REPOSITORY    https://github.com/rapidsai/cugraph.git
   GIT_TAG           v23.02.00
