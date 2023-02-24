@@ -5,8 +5,7 @@
 #include <vector>
 
 #include "boolstuff/BoolExprParser.h"
-
-using index_t = int;
+#include "types.h"
 
 struct clause_t
 {

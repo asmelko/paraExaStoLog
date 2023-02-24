@@ -1,12 +1,8 @@
 #pragma once
 
-#include <thrust/device_vector.h>
-
 #include "cu_context.cuh"
 #include "model.h"
-
-
-using d_idxvec = thrust::device_vector<index_t>;
+#include "types.h"
 
 class transition_table
 {

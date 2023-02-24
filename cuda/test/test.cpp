@@ -2,7 +2,8 @@
 #include <gtest/gtest.h>
 #include <thrust/host_vector.h>
 
-#include "transition_table.cuh"
+#include "transition_graph.h"
+#include "transition_table.h"
 
 TEST(model, valid)
 {
@@ -17,7 +18,7 @@ TEST(model, valid)
 
 	ASSERT_EQ(model.dnfs[1].activations.size(), 1);
 	ASSERT_EQ(model.dnfs[1].activations[0].positive_variables.size(), 0);
-	ASSERT_THAT(model.dnfs[1].activations[0].negative_variables, ::testing::ElementsAre(0,1,2));
+	ASSERT_THAT(model.dnfs[1].activations[0].negative_variables, ::testing::ElementsAre(0, 1, 2));
 
 	ASSERT_EQ(model.dnfs[1].deactivations.size(), 2);
 	ASSERT_THAT(model.dnfs[1].deactivations[0].positive_variables, ::testing::ElementsAre(0, 1));
@@ -27,7 +28,7 @@ TEST(model, valid)
 
 	ASSERT_EQ(model.dnfs[2].activations.size(), 1);
 	ASSERT_EQ(model.dnfs[2].activations[0].positive_variables.size(), 0);
-	ASSERT_THAT(model.dnfs[2].activations[0].negative_variables, ::testing::ElementsAre(0,1,2));
+	ASSERT_THAT(model.dnfs[2].activations[0].negative_variables, ::testing::ElementsAre(0, 1, 2));
 
 	ASSERT_EQ(model.dnfs[2].deactivations.size(), 2);
 	ASSERT_THAT(model.dnfs[2].deactivations[0].positive_variables, ::testing::ElementsAre(0, 2));
@@ -52,4 +53,20 @@ TEST(trans_table, toy)
 
 	ASSERT_THAT(indptr, ::testing::ElementsAre(0, 0, 2, 4, 5, 7, 8, 8, 8));
 	ASSERT_THAT(indices, ::testing::ElementsAre(3, 5, 0, 6, 7, 0, 6, 7));
+}
+
+TEST(trans_graph, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	cu_context context;
+
+	transition_table table(context, std::move(model));
+
+	table.construct_table();
+
+	transition_graph g(table.indices, table.indptr);
+
+	g.order_vertices();
 }

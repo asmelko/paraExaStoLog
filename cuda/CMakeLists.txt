@@ -17,30 +17,15 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-include(ExternalProject)
-
-set(CUGRAPH_INSTALL_DIR ${CMAKE_BINARY_DIR}/cugraph)
-ExternalProject_Add(cugraph
-  GIT_REPOSITORY    https://github.com/rapidsai/cugraph.git
-  GIT_TAG           v23.02.00
-  PREFIX ${CUGRAPH_INSTALL_DIR}
-  SOURCE_SUBDIR cpp
-  BUILD_COMMAND ${CMAKE_COMMAND} --build . --target cugraph -j ${CMAKE_BUILD_PARALLEL_LEVEL}
-  CMAKE_ARGS -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_TESTS=OFF -DUSE_CUGRAPH_OPS=OFF -DCUGRAPH_COMPILE_RAFT_DIST_LIBS=OFF -DCUGRAPH_EXCLUDE_CUGRAPH_OPS_FROM_ALL=ON
-)
-
 # Target exaStoLogCore
 file(GLOB_RECURSE src_files "src/*")
 list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 
 add_library(exaStoLogCore ${src_files})
 
-add_dependencies(exaStoLogCore cugraph)
+target_link_libraries(exaStoLogCore cusparse)
 
-target_link_directories(exaStoLogCore PUBLIC ${CUGRAPH_INSTALL_DIR}/lib)
-target_link_libraries(exaStoLogCore cusparse libcugraph)
-
-target_include_directories(exaStoLogCore PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} ${CUGRAPH_INSTALL_DIR}/include)
+target_include_directories(exaStoLogCore PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
 # Target cudaExaStoLog
 add_executable(cudaExaStoLog src/main.cpp)
@@ -62,6 +47,7 @@ foreach(target cudaExaStoLog unit_cudaExaStoLog exaStoLogCore)
 	else()
 		target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -pedantic>)
 	endif()
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
 endforeach()
 
 add_custom_command(TARGET unit_cudaExaStoLog POST_BUILD

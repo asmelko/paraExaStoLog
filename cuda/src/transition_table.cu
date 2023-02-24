@@ -1,7 +1,7 @@
+#include "transition_table.h"
+
 #include <thrust/host_vector.h>
 #include <thrust/set_operations.h>
-
-#include "transition_table.cuh"
 
 struct transition_ftor : public thrust::unary_function<index_t, index_t>
 {
@@ -24,16 +24,6 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 		return ret;
 	}
 };
-
-void print(const char* msg, const d_idxvec& v)
-{
-	thrust::host_vector<index_t> h = v;
-
-	std::cout << msg;
-	for (auto t : h)
-		std::cout << t << " ";
-	std::cout << std::endl;
-}
 
 d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 {
