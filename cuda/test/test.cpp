@@ -9,6 +9,31 @@ TEST(model, valid)
 	model_builder builder;
 	auto model = builder.construct_model("data/toy.bnet");
 	ASSERT_EQ(model.dnfs.size(), 3);
+
+	ASSERT_THAT(model.nodes, ::testing::ElementsAre("A", "C", "D"));
+
+	ASSERT_EQ(model.dnfs[0].activations.size(), 0);
+	ASSERT_EQ(model.dnfs[0].deactivations.size(), 0);
+
+	ASSERT_EQ(model.dnfs[1].activations.size(), 1);
+	ASSERT_EQ(model.dnfs[1].activations[0].positive_variables.size(), 0);
+	ASSERT_THAT(model.dnfs[1].activations[0].negative_variables, ::testing::ElementsAre(0,1,2));
+
+	ASSERT_EQ(model.dnfs[1].deactivations.size(), 2);
+	ASSERT_THAT(model.dnfs[1].deactivations[0].positive_variables, ::testing::ElementsAre(0, 1));
+	ASSERT_THAT(model.dnfs[1].deactivations[0].negative_variables, ::testing::ElementsAre());
+	ASSERT_THAT(model.dnfs[1].deactivations[1].positive_variables, ::testing::ElementsAre(1, 2));
+	ASSERT_THAT(model.dnfs[1].deactivations[1].negative_variables, ::testing::ElementsAre());
+
+	ASSERT_EQ(model.dnfs[2].activations.size(), 1);
+	ASSERT_EQ(model.dnfs[2].activations[0].positive_variables.size(), 0);
+	ASSERT_THAT(model.dnfs[2].activations[0].negative_variables, ::testing::ElementsAre(0,1,2));
+
+	ASSERT_EQ(model.dnfs[2].deactivations.size(), 2);
+	ASSERT_THAT(model.dnfs[2].deactivations[0].positive_variables, ::testing::ElementsAre(0, 2));
+	ASSERT_THAT(model.dnfs[2].deactivations[0].negative_variables, ::testing::ElementsAre());
+	ASSERT_THAT(model.dnfs[2].deactivations[1].positive_variables, ::testing::ElementsAre(1, 2));
+	ASSERT_THAT(model.dnfs[2].deactivations[1].negative_variables, ::testing::ElementsAre());
 }
 
 TEST(trans_table, toy)

@@ -10,8 +10,8 @@ std::vector<index_t> clause_t::get_free_variables() const
 	std::vector<index_t> ret;
 	for (int i = 0; i < variables_count; i++)
 	{
-		if (std::find(positive_variables.begin(), positive_variables.end(), i) != positive_variables.end()
-			&& std::find(negative_variables.begin(), negative_variables.end(), i) != negative_variables.end())
+		if (std::find(positive_variables.begin(), positive_variables.end(), i) == positive_variables.end()
+			&& std::find(negative_variables.begin(), negative_variables.end(), i) == negative_variables.end())
 			ret.push_back(i);
 	}
 
@@ -27,6 +27,19 @@ index_t clause_t::get_fixed_part() const
 	}
 
 	return fixed;
+}
+
+void clause_t::print() const
+{
+	std::cout << "Clause printout:" << std::endl;
+	std::cout << "Vars: " << variables_count << ", positives: ";
+	for (auto p : positive_variables)
+		std::cout << p << " ";
+	std::cout << ", negatives: ";
+	for (auto n : negative_variables)
+		std::cout << n << " ";
+	std::cout << std::endl;
+	std::cout << "Fixed: " << get_fixed_part() << std::endl;
 }
 
 std::vector<clause_t> model_builder::construct_clauses(const std::string& target, const std::string& factors,
@@ -56,7 +69,7 @@ std::vector<clause_t> model_builder::construct_clauses(const std::string& target
 		term->getTreeVariables(positives, negatives);
 
 		auto indexize = [&targets](const std::set<std::string>& targets_set, std::vector<index_t>& target_indices) {
-			for (int i = 0; i < targets.size(); i++)
+			for (int i = 0; i < (int)targets.size(); i++)
 			{
 				if (targets_set.find(targets[i]) != targets_set.end())
 					target_indices.push_back(i);
@@ -106,8 +119,7 @@ model_t model_builder::construct_model(const std::string& file)
 
 	boolstuff::BoolExprParser parser;
 
-	std::vector<std::string> factors;
-	std::vector<std::string> targets;
+	std::vector<std::string> targets, factors;
 
 	while (!f.eof())
 	{
@@ -124,6 +136,7 @@ model_t model_builder::construct_model(const std::string& file)
 	}
 
 	model_t model;
+	model.nodes = targets;
 
 	for (size_t i = 0; i < factors.size(); ++i)
 	{

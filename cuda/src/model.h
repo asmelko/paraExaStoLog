@@ -17,6 +17,8 @@ struct clause_t
 
 	std::vector<index_t> get_free_variables() const;
 	index_t get_fixed_part() const;
+
+	void print() const;
 };
 
 struct transition_formulae_t
