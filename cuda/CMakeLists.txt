@@ -17,6 +17,13 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
+FetchContent_Declare(
+  cugraph
+  GIT_REPOSITORY https://github.com/rapidsai/cugraph.git
+  GIT_TAG        v23.02.00
+)
+FetchContent_MakeAvailable(cugraph)
+
 file(GLOB_RECURSE src_files "src/*")
 list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 add_library(exaStoLogLib ${src_files})
