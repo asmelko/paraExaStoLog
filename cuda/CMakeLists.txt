@@ -17,17 +17,22 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-FetchContent_Declare(
-  cugraph
-  GIT_REPOSITORY https://github.com/rapidsai/cugraph.git
-  GIT_TAG        v23.02.00
-)
-FetchContent_MakeAvailable(cugraph)
-
 file(GLOB_RECURSE src_files "src/*")
 list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 add_library(exaStoLogLib ${src_files})
 target_link_libraries(exaStoLogLib cusparse)
+
+include(ExternalProject)
+
+ExternalProject_Add(cugraph
+  GIT_REPOSITORY    https://github.com/rapidsai/cugraph.git
+  GIT_TAG           v23.02.00
+  SOURCE_SUBDIR cpp
+  BUILD_COMMAND ${CMAKE_COMMAND} --build . --target cugraph
+  CMAKE_ARGS -DBUILD_TESTS=OFF -DUSE_CUGRAPH_OPS=OFF -DCUGRAPH_COMPILE_RAFT_DIST_LIBS=OFF -DCUGRAPH_EXCLUDE_CUGRAPH_OPS_FROM_ALL=ON
+)
+
+add_dependencies(exaStoLogLib cugraph)
 
 add_executable(cudaExaStoLog src/main.cpp)
 target_link_libraries(cudaExaStoLog exaStoLogLib)
