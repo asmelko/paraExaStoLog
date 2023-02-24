@@ -2,20 +2,20 @@
 
 #include <iostream>
 
-void cuda_check(cudaError_t e)
+void cuda_check(cudaError_t e, const char* file, int line)
 {
 	if (e != cudaSuccess)
 	{
-		std::printf("CUDA API failed at line %d with error: %s (%d)\n", __LINE__, cudaGetErrorString(e), e);
+		std::printf("CUDA API failed at %s:%d with error: %s (%d)\n", file, line, cudaGetErrorString(e), e);
 		std::exit(EXIT_FAILURE);
 	}
 }
 
-void cusparse_check(cusparseStatus_t e)
+void cusparse_check(cusparseStatus_t e, const char* file, int line)
 {
 	if (e != CUSPARSE_STATUS_SUCCESS)
 	{
-		std::printf("CUSPARSE API failed at line %d with error: %s (%d)\n", __LINE__, cusparseGetErrorString(e), e);
+		std::printf("CUSPARSE API failed at %s:%d with error: %s (%d)\n", file, line, cusparseGetErrorString(e), e);
 		std::exit(EXIT_FAILURE);
 	}
 }
