@@ -1,5 +1,7 @@
 #include <thrust/set_operations.h>
 
+#include <thrust/host_vector.h>
+
 #include "transition_table.cuh"
 
 struct transition_ftor : public thrust::unary_function<index_t, index_t>
@@ -24,6 +26,16 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 	}
 };
 
+void print(const char* msg, const d_idxvec& v)
+{
+	thrust::host_vector<index_t> h = v;
+
+	std::cout << msg;
+	for (auto t : h)
+		std::cout << t << " ";
+	std::cout << std::endl;
+}
+
 d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 {
 	d_idxvec transitions;
@@ -43,6 +55,9 @@ d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 
 		d_idxvec tmp(transitions.size() + single_clause_transitions.size());
 
+		auto tmp_end = thrust::set_union(transitions.begin(), transitions.end(), single_clause_transitions.begin(), single_clause_transitions.end(), tmp.begin());
+
+		tmp.resize(tmp_end - tmp.begin());
 
 		std::swap(tmp, transitions);
 	}
@@ -60,16 +75,30 @@ struct flip_ftor : public thrust::unary_function<index_t, index_t>
 
 void transition_table::construct_table()
 {
-	auto [trans_src, trans_dst] = compute_rows_and_cols();
+	auto p = compute_rows_and_cols();
+	auto& trans_src = p.first;
+	auto& trans_dst = p.second;
 
 	int matrix_size = (int)(1ULL << model_.nodes.size());
-	CHECK_CUSPARSE(cusparseXcoosortByRow(context_.cusparse_handle, matrix_size, matrix_size, (int)trans_src.size(),
-										 trans_dst.data().get(), trans_src.data().get(), nullptr, nullptr));
 
-	indices = std::move(trans_dst);
+	size_t buffersize;
+	CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, matrix_size, matrix_size,
+												  (int)trans_src.size(), trans_dst.data().get(), trans_src.data().get(),
+												  &buffersize));
+
+	void* d_buffer;
+	cudaMalloc( &d_buffer, buffersize);
+
+	d_idxvec P(trans_src.size());
+	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, P.size(), P.data().get()));
+
+	CHECK_CUSPARSE(cusparseXcoosortByRow(context_.cusparse_handle, matrix_size, matrix_size, (int)trans_src.size(),
+										 trans_dst.data().get(), trans_src.data().get(), P.data().get(), d_buffer));
+
+	indices = std::move(trans_src);
 	indptr = d_idxvec(matrix_size + 1);
 
-	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, indices.data().get(), (int)indices.size(), matrix_size,
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, trans_dst.data().get(), (int)trans_dst.size(), matrix_size,
 									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
 }
 
