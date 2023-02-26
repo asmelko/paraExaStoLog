@@ -49,7 +49,7 @@ TEST(trans_table, toy)
 	table.construct_table();
 
 	thrust::host_vector<index_t> indptr = table.indptr;
-	thrust::host_vector<index_t> indices = table.indices;
+	thrust::host_vector<index_t> indices = table.cols;
 
 	ASSERT_THAT(indptr, ::testing::ElementsAre(0, 0, 2, 4, 5, 7, 8, 8, 8));
 	ASSERT_THAT(indices, ::testing::ElementsAre(3, 5, 0, 6, 7, 0, 6, 7));
@@ -66,7 +66,7 @@ TEST(trans_graph, toy)
 
 	table.construct_table();
 
-	transition_graph g(table.indices, table.indptr);
+	transition_graph g(table.rows, table.cols, table.indptr);
 
 	g.order_vertices();
 }

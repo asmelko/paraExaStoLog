@@ -12,7 +12,8 @@ class transition_table
 	std::pair<d_idxvec, d_idxvec> compute_rows_and_cols();
 
 public:
-	d_idxvec indptr, indices; // CSR arrays
+	d_idxvec indptr; // CSR arrays
+	d_idxvec rows, cols; // COO arrays
 
 	transition_table(cu_context& context, model_t model);
 

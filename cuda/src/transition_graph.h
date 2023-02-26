@@ -4,12 +4,12 @@
 
 class transition_graph
 {
-	d_idxvec indices_, indptr_, rows_, cols_;
+	d_idxvec rows_, cols_, indptr_;
 
 	size_t vertices_count_;
 
 public:
-	transition_graph(d_idxvec csr_indices, d_idxvec csr_indptr, d_idxvec rows, d_idxvec cols);
+	transition_graph(d_idxvec rows, d_idxvec cols, d_idxvec indptr);
 
     void order_vertices();
 };
