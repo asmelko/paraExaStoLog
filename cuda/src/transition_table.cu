@@ -77,7 +77,7 @@ void transition_table::construct_table()
 	int matrix_size = (int)(1ULL << model_.nodes.size());
 
 	size_t buffersize;
-	CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
+	CHECK_CUSPARSE(cusparseXcscsort_bufferSizeExt(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
 												  rows.data().get(), cols.data().get(), &buffersize));
 
 	void* d_buffer;
@@ -86,12 +86,12 @@ void transition_table::construct_table()
 	d_idxvec P(cols.size());
 	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, P.size(), P.data().get()));
 
-	CHECK_CUSPARSE(cusparseXcoosortByRow(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
-										 rows.data().get(), cols.data().get(), P.data().get(), d_buffer));
+	CHECK_CUSPARSE(cusparseXcoosortByColumn(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
+											rows.data().get(), cols.data().get(), P.data().get(), d_buffer));
 
 	indptr = d_idxvec(matrix_size + 1);
 
-	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, rows.data().get(), (int)rows.size(), matrix_size,
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, cols.data().get(), (int)rows.size(), matrix_size,
 									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
 }
 

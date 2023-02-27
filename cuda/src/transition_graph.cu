@@ -21,7 +21,7 @@ void transition_graph::find_terminals()
 {
 	labels = d_idxvec(vertices_count_);
 
-	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), cols_.data().get());
+	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), rows_.data().get());
 	sccd.run_scc(labels.data().get());
 
 	sccs_count = *thrust::max_element(labels.begin(), labels.end()) + 1;
@@ -38,8 +38,6 @@ void transition_graph::find_terminals()
 														 zip_take_first_ftor<index_t, index_t>(), zip_non_equal_ftor());
 
 	meta_src_transitions.resize(meta_src_transitions_end - meta_src_transitions.begin());
-
-	thrust::sort(meta_src_transitions.begin(), meta_src_transitions.end());
 
 	terminals = d_idxvec(meta_src_transitions.size());
 

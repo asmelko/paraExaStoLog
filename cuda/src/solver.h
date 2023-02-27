@@ -12,7 +12,7 @@ class solver
 	size_t sccs_count_;
 
 	const d_idxvec &rows_, &cols_; // COO
-	const d_idxvec& idxptr_;	   // CSR
+	const d_idxvec& idxptr_;	   // CSC
 
 
 	void solve_terminal_part();
