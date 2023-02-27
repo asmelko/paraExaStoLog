@@ -9,7 +9,10 @@ class transition_graph
 	size_t vertices_count_;
 
 public:
+	d_idxvec terminals, labels;
+	size_t sccs_count;
+
 	transition_graph(d_idxvec rows, d_idxvec cols, d_idxvec indptr);
 
-    void order_vertices();
+    void find_terminals();
 };

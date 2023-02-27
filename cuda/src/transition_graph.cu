@@ -22,16 +22,14 @@ struct zip_take_first_ftor : public thrust::unary_function<thrust::tuple<index_t
 	__host__ __device__ index_t operator()(const thrust::tuple<index_t, index_t>& x) const { return thrust::get<0>(x); }
 };
 
-void transition_graph::order_vertices()
+void transition_graph::find_terminals()
 {
-	d_idxvec labels(vertices_count_);
+	labels = d_idxvec(vertices_count_);
 
 	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), cols_.data().get());
 	sccd.run_scc(labels.data().get());
 
-	print("labels: ", labels);
-
-	index_t labels_count = *thrust::max_element(labels.begin(), labels.end()) + 1;
+	sccs_count = *thrust::max_element(labels.begin(), labels.end()) + 1;
 
 	auto in_begin = thrust::make_zip_iterator(thrust::make_permutation_iterator(labels.begin(), cols_.begin()),
 											  thrust::make_permutation_iterator(labels.begin(), rows_.begin()));
@@ -48,13 +46,11 @@ void transition_graph::order_vertices()
 
 	thrust::sort(meta_src_transitions.begin(), meta_src_transitions.end());
 
-	d_idxvec terminal_metavertices(meta_src_transitions_end - meta_src_transitions.begin());
+	terminals = d_idxvec(meta_src_transitions.size());
 
 	auto terminal_end =
-		thrust::set_difference(thrust::counting_iterator<index_t>(0), thrust::counting_iterator<index_t>(labels_count),
-							   meta_src_transitions.begin(), meta_src_transitions.end(), terminal_metavertices.begin());
+		thrust::set_difference(thrust::counting_iterator<index_t>(0), thrust::counting_iterator<index_t>(sccs_count),
+							   meta_src_transitions.begin(), meta_src_transitions.end(), terminals.begin());
 
-	terminal_metavertices.resize(terminal_end - terminal_metavertices.begin());
-
-	print("terminal metavertices: ", terminal_metavertices);
+	terminals.resize(terminal_end - terminals.begin());
 }

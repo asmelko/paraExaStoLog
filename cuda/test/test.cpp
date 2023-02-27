@@ -68,5 +68,12 @@ TEST(trans_graph, toy)
 
 	transition_graph g(table.rows, table.cols, table.indptr);
 
-	g.order_vertices();
+	g.find_terminals();
+
+	thrust::host_vector<index_t> labels = g.labels;
+	thrust::host_vector<index_t> terminals = g.terminals;
+
+	ASSERT_EQ(g.sccs_count, 8);
+	ASSERT_THAT(labels, ::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
+	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
 }
