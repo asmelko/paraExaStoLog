@@ -2,11 +2,11 @@
 #include <thrust/sort.h>
 
 #include "cugraph/scc_matrix.cuh"
-#include "transition_graph.h"
+#include "transition_graph.cuh"
 #include "utils.cuh"
 
-transition_graph::transition_graph(d_idxvec rows, d_idxvec cols, d_idxvec indptr)
-	: indptr_(std::move(indptr)), rows_(std::move(rows)), cols_(std::move(cols)), vertices_count_(indptr_.size() - 1)
+transition_graph::transition_graph(const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr)
+	: indptr_(indptr), rows_(rows), cols_(cols), vertices_count_(indptr_.size() - 1)
 {}
 
 struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, bool>
@@ -15,11 +15,6 @@ struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t,
 	{
 		return thrust::get<0>(x) != thrust::get<1>(x);
 	}
-};
-
-struct zip_take_first_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, index_t>
-{
-	__host__ __device__ index_t operator()(const thrust::tuple<index_t, index_t>& x) const { return thrust::get<0>(x); }
 };
 
 void transition_graph::find_terminals()
@@ -40,7 +35,7 @@ void transition_graph::find_terminals()
 	d_idxvec meta_src_transitions(vertices_count_);
 
 	auto meta_src_transitions_end = thrust::transform_if(in_begin, in_end, meta_src_transitions.begin(),
-														 zip_take_first_ftor(), zip_non_equal_ftor());
+														 zip_take_first_ftor<index_t, index_t>(), zip_non_equal_ftor());
 
 	meta_src_transitions.resize(meta_src_transitions_end - meta_src_transitions.begin());
 

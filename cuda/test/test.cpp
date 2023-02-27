@@ -3,7 +3,7 @@
 #include <thrust/host_vector.h>
 
 #include "initial_state.h"
-#include "transition_graph.h"
+#include "transition_graph.cuh"
 #include "transition_table.h"
 
 TEST(model, valid)
