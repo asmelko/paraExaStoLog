@@ -17,5 +17,7 @@ public:
 
 	transition_table(cu_context& context, model_t model);
 
+	static d_idxvec construct_transition_vector(const std::vector<index_t>& free_nodes, size_t fixed_val);
+
 	void construct_table();
 };

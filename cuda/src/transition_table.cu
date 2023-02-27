@@ -25,6 +25,17 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 	}
 };
 
+d_idxvec transition_table::construct_transition_vector(const std::vector<index_t>& free_nodes, size_t fixed_val)
+{
+	auto c_b = thrust::make_counting_iterator(0);
+	auto c_e = c_b + (1ULL << free_nodes.size());
+
+	auto b = thrust::make_transform_iterator(c_b, transition_ftor(free_nodes, fixed_val));
+	auto e = thrust::make_transform_iterator(c_e, transition_ftor(free_nodes, fixed_val));
+
+	return d_idxvec(b, e);
+}
+
 d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 {
 	d_idxvec transitions;
@@ -34,13 +45,7 @@ d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
 		auto free_vars = c.get_free_variables();
 		auto fixed = c.get_fixed_part();
 
-		auto c_b = thrust::make_counting_iterator(0);
-		auto c_e = c_b + (1ULL << free_vars.size());
-
-		auto b = thrust::make_transform_iterator(c_b, transition_ftor(free_vars, fixed));
-		auto e = thrust::make_transform_iterator(c_e, transition_ftor(free_vars, fixed));
-
-		d_idxvec single_clause_transitions(b, e);
+		d_idxvec single_clause_transitions = transition_table::construct_transition_vector(free_vars, fixed);
 
 		d_idxvec tmp(transitions.size() + single_clause_transitions.size());
 

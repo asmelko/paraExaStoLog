@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include <thrust/host_vector.h>
 
+#include "initial_state.h"
 #include "transition_graph.h"
 #include "transition_table.h"
 
@@ -76,4 +77,16 @@ TEST(trans_graph, toy)
 	ASSERT_EQ(g.sccs_count, 8);
 	ASSERT_THAT(labels, ::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
 	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
+}
+
+TEST(initial_value, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	initial_state s(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
+
+	thrust::host_vector<float> state = s.state;
+
+	ASSERT_THAT(state, ::testing::ElementsAre(1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f));
 }
