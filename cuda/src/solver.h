@@ -18,6 +18,8 @@ class solver
 
 	void solve_terminal_part();
 
+	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data);
+
 public:
 	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
 

@@ -1,4 +1,7 @@
+#include <cusolverSp.h>
+
 #include <thrust/adjacent_difference.h>
+#include <thrust/execution_policy.h>
 #include <thrust/partition.h>
 
 #include "solver.h"
@@ -44,8 +47,84 @@ __global__ void scatter_rows_data(const __restrict__ index_t* dst_indptr, __rest
 		dst_rows[dst_begin + i] = src_rows[src_begin + i];
 	}
 
-	dst_rows[dst_begin + i] = idx;
+	dst_rows[dst_begin + i] = src_perm[idx];
 	dst_data[dst_begin + i] = -(float)i;
+}
+
+float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data)
+{
+	cusolverSpHandle_t handle;
+	cusolverSpCreate(&handle);
+
+	thrust::host_vector<index_t> h_indptr = indptr;
+	thrust::host_vector<index_t> h_rows = rows;
+	thrust::host_vector<float> h_data = data;
+
+	csrluInfoHost_t info;
+	cusolverSpCreateCsrluInfoHost(&info);
+
+	cusparseMatDescr_t desc, descr_L, descr_U;
+	cusparseCreateMatDescr(&desc);
+	cusparseSetMatIndexBase(desc, CUSPARSE_INDEX_BASE_ZERO);
+	cusparseSetMatType(desc, CUSPARSE_MATRIX_TYPE_GENERAL);
+
+
+	cusparseCreateMatDescr(&descr_L);
+	cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO);
+	cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER);
+	cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT);
+
+	cusparseCreateMatDescr(&descr_U);
+	cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO);
+	cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER);
+	cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT);
+
+	cusolverSpXcsrluAnalysisHost(handle, indptr.size() - 1, rows.size(), desc, h_indptr.data(), h_rows.data(), info);
+
+	size_t internal_data, workspace;
+	cusolverSpScsrluBufferInfoHost(handle, indptr.size() - 1, rows.size(), desc, h_data.data(), h_indptr.data(),
+								   h_rows.data(), info, &internal_data, &workspace);
+
+	std::vector<char> buffer(workspace);
+
+	cusolverSpScsrluFactorHost(handle, indptr.size() - 1, rows.size(), desc, h_data.data(), h_indptr.data(),
+							   h_rows.data(), info, 0.f, buffer.data());
+
+	int nnz_l, nnz_u;
+	cusolverSpXcsrluNnzHost(handle, &nnz_l, &nnz_u, info);
+
+	std::vector<index_t> P(indptr.size() - 1), Q(indptr.size() - 1), L_indptr(indptr.size()), U_indptr(indptr.size()),
+		L_cols(nnz_l), U_cols(nnz_u);
+	std::vector<float> L_data(nnz_l), U_data(nnz_u);
+
+	cusolverSpScsrluExtractHost(handle, P.data(), Q.data(), descr_L, L_data.data(), L_indptr.data(), L_cols.data(),
+								descr_U, U_data.data(), U_indptr.data(), U_cols.data(), info, buffer.data());
+
+	std::vector<float> diag(indptr.size() - 1);
+
+	thrust::for_each(thrust::host, thrust::make_counting_iterator<index_t>(0),
+					 thrust::make_counting_iterator<index_t>(indptr.size() - 1), [&](index_t i) {
+						 auto begin = U_indptr[i];
+						 auto end = U_indptr[i + 1];
+
+						 for (auto col_idx = begin; col_idx != end; col_idx++)
+						 {
+							 if (U_cols[col_idx] == i)
+								 diag[i] = U_data[col_idx];
+						 }
+					 });
+
+	float determinant = thrust::reduce(thrust::host, diag.begin(), diag.end(), 0, thrust::multiplies<float>());
+
+	cusparseDestroyMatDescr(desc);
+	cusparseDestroyMatDescr(descr_L);
+	cusparseDestroyMatDescr(descr_U);
+	cusolverSpDestroyCsrluInfoHost(info);
+	cusolverSpDestroy(handle);
+
+	return determinant;
 }
 
 void solver::solve_terminal_part()
@@ -58,16 +137,19 @@ void solver::solve_terminal_part()
 	terminals_offsets.reserve(terminals_.size() + 1);
 	terminals_offsets.push_back(0);
 
+	d_idxvec reverse_labels(labels_.size());
+
 	// we partition labels_ and sccs multiple times so the ordering is T1, ..., Tn, NT1, ..., NTn
 	auto partition_point = thrust::make_zip_iterator(sccs.begin(), labels_.begin());
 	for (auto it = terminals_.begin(); it != terminals_.end(); it++)
 	{
-		partition_point = thrust::stable_partition(partition_point, thrust::make_zip_iterator(sccs.end(), labels.end()),
-												   [terminal_idx = *it] __device__(thrust::tuple<index_t, index_t> x) {
-													   return thrust::get<1>(x) == terminal_idx;
-												   });
+		partition_point =
+			thrust::stable_partition(partition_point, thrust::make_zip_iterator(sccs.end(), labels_.end()),
+									 [terminal_idx = *it] __device__(thrust::tuple<index_t, index_t> x) {
+										 return thrust::get<1>(x) == terminal_idx;
+									 });
 
-		terminals_offsets.push_back(partition_point - thrust::make_zip_iterator(sccs.begin(), labels.begin()));
+		terminals_offsets.push_back(partition_point - thrust::make_zip_iterator(sccs.begin(), labels_.begin()));
 	}
 
 	// this is point that partitions terminals and nonterminals
@@ -78,6 +160,11 @@ void solver::solve_terminal_part()
 		size_t scc_size = terminals_offsets[i] - terminals_offsets[i - 1];
 		d_idxvec scc_indptr(scc_size + 1);
 		scc_indptr[0] = 0;
+
+		// create map for scc vertices so they start from 0
+		thrust::copy(
+			thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(scc_size),
+			thrust::make_permutation_iterator(reverse_labels.begin(), sccs.begin() + terminals_offsets[i - 1]));
 
 		// this creates indptr of scc in CSC
 		{
@@ -90,7 +177,7 @@ void solver::solve_terminal_part()
 			thrust::adjacent_difference(scc_begins_b, scc_begins_e, scc_indptr.begin() + 1);
 
 			// add 1 to each col for diagonal part
-			thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+			thrust::transform(scc_indptr.begin() + 1, scc_indptr.end(), scc_indptr.begin() + 1,
 							  [] __device__(index_t x) { return x + 1; });
 
 			thrust::inclusive_scan(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin());
@@ -109,6 +196,9 @@ void solver::solve_terminal_part()
 													   sccs.data().get() + terminals_offsets[i], scc_size);
 
 			CHECK_CUDA(cudaDeviceSynchronize());
+
+			thrust::transform(scc_rows.begin(), scc_rows.end(), scc_rows.begin(),
+							  [map = reverse_labels.data().get()] __device__(index_t x) { return map[x]; });
 		}
 
 		// this decompresses indptr into cols
@@ -149,8 +239,6 @@ void solver::solve_terminal_part()
 			thrust::copy(scc_rows.begin() + h_scc_indptr[i + 1], scc_rows.end(), minor_rows.begin() + h_scc_indptr[i]);
 
 			// determinant
-
-
 		}
 	}
 }
