@@ -23,9 +23,10 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  indptr_(t.indptr)
 {}
 
-__global__ void scatter_rows(const __restrict__ index_t* dst_indptr, __restrict__ index_t* dst_rows,
-							 const __restrict__ index_t* src_rows, const __restrict__ index_t* src_indptr,
-							 const __restrict__ index_t* src_perm, int perm_size)
+__global__ void scatter_rows_data(const __restrict__ index_t* dst_indptr, __restrict__ index_t* dst_rows,
+								  __restrict__ float* dst_data, const __restrict__ index_t* src_rows,
+								  const __restrict__ index_t* src_indptr, const __restrict__ index_t* src_perm,
+								  int perm_size)
 {
 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -37,10 +38,14 @@ __global__ void scatter_rows(const __restrict__ index_t* dst_indptr, __restrict_
 
 	index_t dst_begin = dst_indptr[idx];
 
-	for (int i = 0; i < src_end - src_begin; i++)
+	int i = 0;
+	for (; i < src_end - src_begin; i++)
 	{
 		dst_rows[dst_begin + i] = src_rows[src_begin + i];
 	}
+
+	dst_rows[dst_begin + i] = idx;
+	dst_data[dst_begin + i] = -(float)i;
 }
 
 void solver::solve_terminal_part()
@@ -54,7 +59,7 @@ void solver::solve_terminal_part()
 	terminals_offsets.push_back(0);
 
 	// we partition labels_ and sccs multiple times so the ordering is T1, ..., Tn, NT1, ..., NTn
-	auto partition_point = thrust::make_zip_iterator(sccs.begin(), labels.begin());
+	auto partition_point = thrust::make_zip_iterator(sccs.begin(), labels_.begin());
 	for (auto it = terminals_.begin(); it != terminals_.end(); it++)
 	{
 		partition_point = thrust::stable_partition(partition_point, thrust::make_zip_iterator(sccs.end(), labels.end()),
@@ -82,24 +87,26 @@ void solver::solve_terminal_part()
 			auto scc_begins_e =
 				thrust::make_permutation_iterator(indptr_.begin() + 1, sccs.begin() + terminals_offsets[i]);
 
-			// TODO add 1 to each col for diagonal part
 			thrust::adjacent_difference(scc_begins_b, scc_begins_e, scc_indptr.begin() + 1);
+
+			// add 1 to each col for diagonal part
+			thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+							  [] __device__(index_t x) { return x + 1; });
 
 			thrust::inclusive_scan(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin());
 		}
 
 		index_t nnz = scc_indptr.back();
 		d_idxvec scc_cols(nnz), scc_rows(nnz);
+		thrust::device_vector<float> scc_data(nnz, 1.f);
 
-		// this creates rows of scc
+		// this creates rows and data of scc
 		{
-			// TODO add itself to each row
-			// TODO add data pointer
 			int blocksize = 512;
 			int gridsize = (scc_size + blocksize - 1) / blocksize;
-			scatter_rows<<<gridsize, blocksize>>>(scc_indptr.data().get(), scc_rows.data().get(), rows_.data().get(),
-												  indptr_.data().get(), sccs.data().get() + terminals_offsets[i],
-												  scc_size);
+			scatter_rows_data<<<gridsize, blocksize>>>(scc_indptr.data().get(), scc_rows.data().get(),
+													   scc_data.data().get(), rows_.data().get(), indptr_.data().get(),
+													   sccs.data().get() + terminals_offsets[i], scc_size);
 
 			CHECK_CUDA(cudaDeviceSynchronize());
 		}
@@ -142,6 +149,7 @@ void solver::solve_terminal_part()
 			thrust::copy(scc_rows.begin() + h_scc_indptr[i + 1], scc_rows.end(), minor_rows.begin() + h_scc_indptr[i]);
 
 			// determinant
+
 
 		}
 	}
