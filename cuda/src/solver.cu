@@ -64,22 +64,22 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 	cusolverSpCreateCsrluInfoHost(&info);
 
 	cusparseMatDescr_t desc, descr_L, descr_U;
-	cusparseCreateMatDescr(&desc);
-	cusparseSetMatIndexBase(desc, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(desc, CUSPARSE_MATRIX_TYPE_GENERAL);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&desc));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(desc, CUSPARSE_INDEX_BASE_ZERO);
+	CHECK_CUSPARSE(cusparseSetMatType(desc, CUSPARSE_MATRIX_TYPE_GENERAL);
 
 
-	cusparseCreateMatDescr(&descr_L);
-	cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER);
-	cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L);
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO);
+	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL);
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER);
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT);
 
-	cusparseCreateMatDescr(&descr_U);
-	cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER);
-	cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U);
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO);
+	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL);
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER);
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT);
 
 	cusolverSpXcsrluAnalysisHost(handle, indptr.size() - 1, rows.size(), desc, h_indptr.data(), h_rows.data(), info);
 
@@ -118,9 +118,9 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 	float determinant = thrust::reduce(thrust::host, diag.begin(), diag.end(), 0, thrust::multiplies<float>());
 
-	cusparseDestroyMatDescr(desc);
-	cusparseDestroyMatDescr(descr_L);
-	cusparseDestroyMatDescr(descr_U);
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(desc);
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L);
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U);
 	cusolverSpDestroyCsrluInfoHost(info);
 	cusolverSpDestroy(handle);
 
