@@ -23,7 +23,7 @@ list(FILTER src_files EXCLUDE REGEX ".*main\\.cpp")
 
 add_library(exaStoLogCore ${src_files})
 
-target_link_libraries(exaStoLogCore cusparse)
+target_link_libraries(exaStoLogCore cusparse cusolver)
 
 target_include_directories(exaStoLogCore PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 

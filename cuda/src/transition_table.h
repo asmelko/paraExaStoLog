@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cu_context.cuh"
+#include "cu_context.h"
 #include "model.h"
 #include "types.h"
 

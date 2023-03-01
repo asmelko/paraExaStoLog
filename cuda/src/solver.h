@@ -1,7 +1,7 @@
 #pragma once
 
 #include "initial_state.h"
-#include "transition_graph.cuh"
+#include "transition_graph.h"
 #include "transition_table.h"
 
 class solver
@@ -16,12 +16,16 @@ class solver
 	const d_idxvec& indptr_;	   // CSC
 
 
-	void solve_terminal_part();
-
-	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data);
+	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+					  int nnz);
 
 public:
+	d_idxvec term_indptr, term_rows;
+	thrust::device_vector<float> term_data;
+
 	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
+
+	void solve_terminal_part();
 
 	void solve();
 };

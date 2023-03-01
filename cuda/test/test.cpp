@@ -2,9 +2,7 @@
 #include <gtest/gtest.h>
 #include <thrust/host_vector.h>
 
-#include "initial_state.h"
-#include "transition_graph.cuh"
-#include "transition_table.h"
+#include "solver.h"
 
 TEST(model, valid)
 {
@@ -52,8 +50,8 @@ TEST(trans_table, toy)
 	thrust::host_vector<index_t> indptr = table.indptr;
 	thrust::host_vector<index_t> indices = table.cols;
 
-	ASSERT_THAT(indptr, ::testing::ElementsAre(0, 0, 2, 4, 5, 7, 8, 8, 8));
-	ASSERT_THAT(indices, ::testing::ElementsAre(3, 5, 0, 6, 7, 0, 6, 7));
+	ASSERT_THAT(indptr, ::testing::ElementsAre(0, 2, 2, 2, 3, 3, 4, 6, 8));
+	ASSERT_THAT(indices, ::testing::ElementsAre(0, 0, 3, 5, 6, 6, 7, 7));
 }
 
 TEST(trans_graph, toy)
@@ -89,4 +87,41 @@ TEST(initial_value, toy)
 	thrust::host_vector<float> state = s.state;
 
 	ASSERT_THAT(state, ::testing::ElementsAre(1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f));
+}
+
+TEST(solver, toy2)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy2.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	thrust::host_vector<index_t> labels = g.labels;
+	thrust::host_vector<index_t> terminals = g.terminals;
+
+	ASSERT_EQ(g.sccs_count, 3);
+	ASSERT_THAT(labels, ::testing::ElementsAre(0, 0, 0, 3, 4, 0, 0, 0));
+	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
+
+	initial_state st(model.nodes, { "A" }, { true }, 1.f);
+
+	solver s(context, table, std::move(g), std::move(st));
+
+	s.solve_terminal_part();
+
+	thrust::host_vector<index_t> term_indptr = s.term_indptr;
+	thrust::host_vector<index_t> term_rows = s.term_rows;
+	thrust::host_vector<float> term_data = s.term_data;
+
+	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 6));
+	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
+	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 }
