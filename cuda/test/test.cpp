@@ -115,7 +115,7 @@ TEST(solver, toy2)
 
 	solver s(context, table, std::move(g), std::move(st));
 
-	s.solve_terminal_part();
+	s.solve();
 
 	thrust::host_vector<index_t> term_indptr = s.term_indptr;
 	thrust::host_vector<index_t> term_rows = s.term_rows;
