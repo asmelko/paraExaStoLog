@@ -173,7 +173,51 @@ TEST(solver, toy)
 	thrust::host_vector<index_t> nonterm_rows = s.nonterm_rows;
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
-	//ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
+	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
+	ASSERT_THAT(nonterm_rows, ::testing::ElementsAre(1, 3,5,7,2, 0,6,4,0,6));
+	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1,1,1,1,1,0.5,0.5,1,0.5,0.5));
+}
+
+TEST(solver, toy3)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy3.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	thrust::host_vector<index_t> labels = g.labels;
+	thrust::host_vector<index_t> terminals = g.terminals;
+
+	ASSERT_EQ(g.sccs_count, 8);
+	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
+
+	initial_state st(model.nodes, { "A" }, { true }, 1.f);
+
+	solver s(context, table, std::move(g), std::move(st));
+
+	s.solve();
+
+	thrust::host_vector<index_t> term_indptr = s.term_indptr;
+	thrust::host_vector<index_t> term_rows = s.term_rows;
+	thrust::host_vector<float> term_data = s.term_data;
+
+	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 1, 2, 3));
+	ASSERT_THAT(term_rows, ::testing::ElementsAre(1, 2, 4));
+	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1)));
+
+	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
+	thrust::host_vector<index_t> nonterm_rows = s.nonterm_rows;
+	thrust::host_vector<float> nonterm_data = s.nonterm_data;
+
+	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
 	ASSERT_THAT(nonterm_rows, ::testing::ElementsAre(1, 3,5,7,2, 0,6,4,0,6));
 	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1,1,1,1,1,0.5,0.5,1,0.5,0.5));
 }
