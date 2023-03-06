@@ -6,6 +6,10 @@
 #include <thrust/execution_policy.h>
 #include <thrust/partition.h>
 
+constexpr float zero_threshold = 1e-10f;
+
+__device__ __host__ bool is_zero(float x) { return (x > 0 ? x : -x) <= zero_threshold; }
+
 #include "solver.h"
 #include "utils.h"
 
@@ -497,9 +501,9 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	thrust::host_vector<index_t> hb_indices = b_indices;
 
 
-	thrust::host_vector<float> x_vec(cols * (b_indptr.size() - 1));
+	thrust::host_vector<float> x_vec(cols);
 
-	d_idxvec hx_indptr(b_indptr.size());
+	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
@@ -513,7 +517,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 		CHECK_CUSOLVER(
 			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
 
-		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [](float x) { return x != 0; });
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [](float x) { return !is_zero(x); });
 
 		thrust::device_vector<float> dx_vec = x_vec;
 
@@ -526,7 +530,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 		thrust::copy_if(thrust::make_zip_iterator(dx_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
 						thrust::make_zip_iterator(dx_vec.end(), thrust::make_counting_iterator<index_t>(dx_vec.size())),
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
-						[] __device__(thrust::tuple<float, index_t> x) { return thrust::get<0>(x) != 0.f; });
+						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
 
 	x_indptr = hx_indptr;
