@@ -125,9 +125,9 @@ TEST(solver, toy2)
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 
-	thrust::host_vector<index_t> nonterm_indptr = s.term_indptr;
-	thrust::host_vector<index_t> nonterm_rows = s.term_rows;
-	thrust::host_vector<float> nonterm_data = s.term_data;
+	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
+	thrust::host_vector<index_t> nonterm_rows = s.nonterm_rows;
+	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
 	ASSERT_THAT(nonterm_rows, ::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
