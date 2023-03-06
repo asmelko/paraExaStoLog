@@ -658,7 +658,7 @@ void solver::solve_nonterminal_part()
 	thrust::device_vector<float> X_data;
 
 	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
-					 A_indptr_t, A_indices_t, A_data_t, sccs_offsets_.size() - 1, X_indptr, X_indices, X_data);
+					 A_indptr, A_indices, A_data, sccs_offsets_.size() - 1, X_indptr, X_indices, X_data);
 
 
 	print("X csr indptr  ", X_indptr);
