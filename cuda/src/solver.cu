@@ -487,14 +487,20 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	CHECK_CUSOLVER(
 		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
 
+		cudaDeviceSynchronize();
+
 	size_t internal_data, workspace;
 	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(context_.cusolver_handle, n, nnz, descr, h_data.data(),
 												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
+
+		cudaDeviceSynchronize();
 
 	std::vector<char> buffer(workspace);
 
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
+
+		cudaDeviceSynchronize();
 
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
@@ -516,6 +522,8 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 
 		CHECK_CUSOLVER(
 			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
+
+		cudaDeviceSynchronize();
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [](float x) { return !is_zero(x); });
 
