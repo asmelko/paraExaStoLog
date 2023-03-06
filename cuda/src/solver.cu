@@ -250,10 +250,6 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 
 void solver::solve_terminal_part()
 {
-	index_t n = labels_.size();
-	index_t terminal_vertices_n = sccs_offsets_.back();
-	index_t nonterminal_vertices_n = n - terminal_vertices_n;
-
 	d_idxvec reverse_labels(labels_.size());
 
 	// BEWARE this expects that scc_offsets_ contains just terminal scc indices
@@ -574,7 +570,8 @@ void solver::solve_nonterminal_part()
 	// custom mapping
 	{
 		thrust::copy(
-			thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
+			thrust::make_counting_iterator<intptr_t>(0),
+			thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
 			thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), sccs_.begin() + sccs_offsets_.back()));
 
 		thrust::copy(thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
@@ -676,14 +673,28 @@ void solver::solve_nonterminal_part()
 		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) + thrust::get<1>(x); });
 
 
-	int blocksize = 512;
-	int gridsize = (2 * (nonterm_indptr.size() - 1) + blocksize - 1) / blocksize;
-	hstack<<<gridsize, blocksize>>>(nonterm_indptr.data().get(), nonterm_rows.data().get(), nonterm_data.data().get(),
-									U_indptr_csr.data().get(), X_indptr.data().get(), U_cols.data().get(),
-									X_indices.data().get(), U_data.data().get(), X_data.data().get(),
-									nonterm_indptr.size() - 1);
+	// -U back to U
+	thrust::transform(U_data.begin(), U_data.end(), U_data.begin(), thrust::negate<float>());
 
-	CHECK_CUDA(cudaDeviceSynchronize());
+	// nonterminal vertices from 0, ..., n_nt to actual indices
+	{
+		thrust::copy(sccs_.begin() + sccs_offsets_.back(), sccs_.end(), submatrix_vertex_mapping_.begin());
+
+		thrust::transform(X_indices.begin(), X_indices.end(), X_indices.begin(),
+						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
+	}
+
+	// hstack(U,X)
+	{
+		int blocksize = 512;
+		int gridsize = (2 * (nonterm_indptr.size() - 1) + blocksize - 1) / blocksize;
+		hstack<<<gridsize, blocksize>>>(nonterm_indptr.data().get(), nonterm_rows.data().get(),
+										nonterm_data.data().get(), U_indptr_csr.data().get(), X_indptr.data().get(),
+										U_cols.data().get(), X_indices.data().get(), U_data.data().get(),
+										X_data.data().get(), nonterm_indptr.size() - 1);
+
+		CHECK_CUDA(cudaDeviceSynchronize());
+	}
 }
 
 void solver::solve()
