@@ -173,7 +173,7 @@ TEST(solver, toy)
 	thrust::host_vector<index_t> nonterm_rows = s.nonterm_rows;
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
-	//ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
+	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
 	ASSERT_THAT(nonterm_rows, ::testing::ElementsAre(1, 3,5,7,2, 0,6,4,0,6));
 	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1,1,1,1,1,0.5,0.5,1,0.5,0.5));
 }
