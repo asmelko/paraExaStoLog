@@ -65,23 +65,16 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	if (idx >= 2 * n)
 		return;
 
-	printf("tidx %i", idx);
-
 	const index_t* __restrict__ my_indptr = (idx >= n) ? rhs_indptr : lhs_indptr;
 	const index_t* __restrict__ my_indices = (idx >= n) ? rhs_indices : lhs_indices;
 	const float* __restrict__ my_data = (idx >= n) ? rhs_data : lhs_data;
 	const int my_offset = (idx >= n) ? lhs_indptr[idx - n + 1] - lhs_indptr[idx - n] : 0;
 	idx -= (idx >= n) ? n : 0;
 
-
 	auto out_begin = out_indptr[idx] + my_offset;
 	auto in_begin = my_indptr[idx];
 
 	auto count = my_indptr[idx + 1] - in_begin;
-
-
-	printf("idx %i offset %i", idx, my_offset);
-	printf("out_b %i in_b %i c %i", out_begin, in_begin, count);
 
 	for (int i = 0; i < count; i++)
 	{
