@@ -69,6 +69,7 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	const index_t* __restrict__ my_indices = (idx >= n) ? rhs_indices : lhs_indices;
 	const float* __restrict__ my_data = (idx >= n) ? rhs_data : lhs_data;
 	const int my_offset = (idx >= n) ? lhs_indptr[idx + 1] - lhs_indptr[idx] : 0;
+	idx -= (idx >= n) ? n : 0;
 
 	auto out_begin = out_indptr[idx] + my_offset;
 	auto in_begin = my_indptr[idx];
@@ -636,18 +637,6 @@ void solver::solve_nonterminal_part()
 	print("N csc indptr  ", nb_indptr_csc);
 	print("N csc indices ", nb_rows);
 	print("N csc data    ", nb_data_csc);
-
-
-	d_idxvec A_indptr_t, A_indices_t;
-	thrust::device_vector<float> A_data_t;
-
-	csr_csc_switch(A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), sccs_offsets_.size() - 1,
-				   nonterminal_vertices_n, n_nnz, A_indptr_t, A_indices_t, A_data_t);
-
-
-	print("A csc indptr  ", A_indptr_t);
-	print("A csc indices ", A_indices_t);
-	print("A csc data    ", A_data_t);
 
 
 	d_idxvec X_indptr, X_indices;
