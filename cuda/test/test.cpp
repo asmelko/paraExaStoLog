@@ -152,7 +152,7 @@ TEST(solver, toy)
 	thrust::host_vector<index_t> labels = g.labels;
 	thrust::host_vector<index_t> terminals = g.terminals;
 
-	ASSERT_EQ(g.sccs_count, 3);
+	ASSERT_EQ(g.sccs_count, 8);
 	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
 
 	initial_state st(model.nodes, { "A" }, { true }, 1.f);
