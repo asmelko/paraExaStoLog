@@ -459,9 +459,14 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 							  const thrust::device_vector<float>& b_data, int b_cols, d_idxvec& x_indptr,
 							  d_idxvec& x_indices, thrust::device_vector<float>& x_data)
 {
+		cudaDeviceSynchronize();
+
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
 	thrust::host_vector<float> h_data = data;
+
+		cudaDeviceSynchronize();
+
 
 	csrluInfoHost_t info;
 	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
