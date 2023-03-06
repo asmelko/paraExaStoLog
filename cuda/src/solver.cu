@@ -70,7 +70,7 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	const index_t* __restrict__ my_indptr = (idx >= n) ? rhs_indptr : lhs_indptr;
 	const index_t* __restrict__ my_indices = (idx >= n) ? rhs_indices : lhs_indices;
 	const float* __restrict__ my_data = (idx >= n) ? rhs_data : lhs_data;
-	const int my_offset = (idx >= n) ? lhs_indptr[idx + 1] - lhs_indptr[idx] : 0;
+	const int my_offset = (idx >= n) ? lhs_indptr[idx - n + 1] - lhs_indptr[idx - n] : 0;
 	idx -= (idx >= n) ? n : 0;
 
 
