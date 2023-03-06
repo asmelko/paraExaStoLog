@@ -618,8 +618,8 @@ void solver::solve_nonterminal_part()
 
 	matmul(U_indptr_csr.data().get(), U_cols.data().get(), U_data.data().get(), sccs_offsets_.size() - 1,
 		   terminal_vertices_n, U_cols.size(), nb_indptr_csr.data().get() + nonterminal_vertices_n,
-		   nb_cols.data().get() + nonterminal_vertices_n, nb_data_csr.data().get() + nonterminal_vertices_n,
-		   terminal_vertices_n, nonterminal_vertices_n, b_nnz, A_indptr, A_indices, A_data);
+		   nb_cols.data().get() + n_nnz, nb_data_csr.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n,
+		   b_nnz, A_indptr, A_indices, A_data);
 
 	print("A csr indptr  ", A_indptr);
 	print("A csr indices ", A_indices);
