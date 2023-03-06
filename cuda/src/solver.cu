@@ -575,10 +575,10 @@ void solver::solve_nonterminal_part()
 	// custom mapping
 	{
 		thrust::copy(
-			thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(n),
+			thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
 			thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), sccs_.begin() + sccs_offsets_.back()));
 
-		thrust::copy(thrust::make_counting_iterator<intptr_t>(n),
+		thrust::copy(thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
 					 thrust::make_counting_iterator<intptr_t>(labels_.size()),
 					 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), sccs_.begin()));
 	}
@@ -648,7 +648,7 @@ void solver::solve_nonterminal_part()
 	csr_csc_switch(A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), sccs_offsets_.size() - 1,
 				   nonterminal_vertices_n, n_nnz, A_indptr_t, A_indices_t, A_data_t);
 
-	
+
 	print("A csc indptr  ", A_indptr_t);
 	print("A csc indices ", A_indices_t);
 	print("A csc data    ", A_data_t);
@@ -660,7 +660,7 @@ void solver::solve_nonterminal_part()
 	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
 					 A_indptr_t, A_indices_t, A_data_t, sccs_offsets_.size() - 1, X_indptr, X_indices, X_data);
 
-	
+
 	print("X csr indptr  ", X_indptr);
 	print("X csr indices ", X_indices);
 	print("X csr data    ", X_data);
