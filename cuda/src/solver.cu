@@ -261,12 +261,7 @@ void solver::solve_terminal_part()
 	term_rows.resize(sccs_offsets_.back());
 	term_data.resize(sccs_offsets_.back());
 
-	thrust::copy(thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
-				 thrust::make_counting_iterator<intptr_t>(n),
-				 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), sccs_.begin()));
-
-	thrust::transform(sccs_.begin(), sccs_.begin() + sccs_offsets_.back(), term_rows.begin(),
-					  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
+	thrust::copy(sccs_.begin(), sccs_.begin() + sccs_offsets_.back(), term_rows.begin());
 
 	for (size_t terminal_scc_idx = 1; terminal_scc_idx < sccs_offsets_.size(); terminal_scc_idx++)
 	{
@@ -558,8 +553,12 @@ void solver::solve_nonterminal_part()
 	d_idxvec& U_indptr_csr = term_indptr;
 	d_idxvec U_cols(term_rows.size());
 
-	thrust::transform(term_rows.begin(), term_rows.end(), U_cols.begin(),
-					  [offset = nonterminal_vertices_n] __device__(index_t x) { return x - offset; });
+	thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
+				 thrust::make_counting_iterator<intptr_t>(terminal_vertices_n),
+				 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), sccs_.begin()));
+
+	thrust::transform(sccs_.begin(), sccs_.begin() + sccs_offsets_.back(), U_cols.begin(),
+					  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 
 	thrust::device_vector<float> U_data(term_rows.size(), -1.f);
 
