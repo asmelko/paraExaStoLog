@@ -54,6 +54,34 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 	dst_data[dst_begin + i] = -(float)i;
 }
 
+__global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
+					   float* __restrict__ out_data, const index_t* __restrict__ lhs_indptr,
+					   const index_t* __restrict__ rhs_indptr, const index_t* __restrict__ lhs_indices,
+					   const index_t* __restrict__ rhs_indices, const float* __restrict__ lhs_data,
+					   const float* __restrict__ rhs_data, int n)
+{
+	int idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	if (idx >= 2 * n)
+		return;
+
+	const index_t* __restrict__ my_indptr = (idx >= n) ? rhs_indptr : lhs_indptr;
+	const index_t* __restrict__ my_indices = (idx >= n) ? rhs_indices : lhs_indices;
+	const float* __restrict__ my_data = (idx >= n) ? rhs_data : lhs_data;
+	const int my_offset = (idx >= n) ? lhs_indptr[idx + 1] - lhs_indptr[idx] : 0;
+
+	auto out_begin = out_indptr[idx] + my_offset;
+	auto in_begin = my_indptr[idx];
+
+	auto count = my_indptr[idx + 1] - in_begin;
+
+	for (int i = 0; i < count; i++)
+	{
+		out_indices[out_begin + i] = my_indices[in_begin + i];
+		out_data[out_begin + i] = my_data[in_begin + i];
+	}
+}
+
 float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int nnz)
 {
@@ -421,124 +449,90 @@ void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, 
 	CHECK_CUSPARSE(cusparseDestroySpMat(out_descr));
 }
 
-void solver::solve_tri_system()
+void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data,
+							  int n, int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
+							  const thrust::device_vector<float>& b_data, int b_cols, d_idxvec& x_indptr,
+							  d_idxvec& x_indices, thrust::device_vector<float>& x_data)
 {
-	// Suppose that A is m x m sparse matrix represented by CSR format,
-	// Assumption:
-	// - handle is already created by cusparseCreate(),
-	// - (d_csrRowPtr, d_csrColInd, d_csrVal) is CSR of A on device memory,
-	// - d_x is right hand side vector on device memory,
-	// - d_y is solution vector on device memory.
-	// - d_z is intermediate result on device memory.
+	thrust::host_vector<index_t> h_indptr = indptr;
+	thrust::host_vector<index_t> h_rows = rows;
+	thrust::host_vector<float> h_data = data;
 
-	cusparseMatDescr_t descr_M = 0;
-	cusparseMatDescr_t descr_L = 0;
-	cusparseMatDescr_t descr_U = 0;
-	csrilu02Info_t info_M = 0;
-	csrsv2Info_t info_L = 0;
-	csrsv2Info_t info_U = 0;
-	int pBufferSize_M;
-	int pBufferSize_L;
-	int pBufferSize_U;
-	int pBufferSize;
-	void* pBuffer = 0;
-	int structural_zero;
-	int numerical_zero;
-	const double alpha = 1.;
-	const cusparseSolvePolicy_t policy_M = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
-	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
-	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
-	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_NON_TRANSPOSE;
-	const cusparseOperation_t trans_U = CUSPARSE_OPERATION_NON_TRANSPOSE;
+	csrluInfoHost_t info;
+	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
 
-	// step 1: create a descriptor which contains
-	// - matrix M is base-1
-	// - matrix L is base-1
-	// - matrix L is lower triangular
-	// - matrix L has unit diagonal
-	// - matrix U is base-1
-	// - matrix U is upper triangular
-	// - matrix U has non-unit diagonal
-	cusparseCreateMatDescr(&descr_M);
-	cusparseSetMatIndexBase(descr_M, CUSPARSE_INDEX_BASE_ONE);
-	cusparseSetMatType(descr_M, CUSPARSE_MATRIX_TYPE_GENERAL);
+	cusparseMatDescr_t descr, descr_L, descr_U;
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
-	cusparseCreateMatDescr(&descr_L);
-	cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ONE);
-	cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER);
-	cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
 
-	cusparseCreateMatDescr(&descr_U);
-	cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ONE);
-	cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER);
-	cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
-	// step 2: create a empty info structure
-	// we need one info for csrilu02 and two info's for csrsv2
-	cusparseCreateCsrilu02Info(&info_M);
-	cusparseCreateCsrsv2Info(&info_L);
-	cusparseCreateCsrsv2Info(&info_U);
+	CHECK_CUSOLVER(
+		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
 
-	cusparseSbsrsm2_bufferSize()
+	size_t internal_data, workspace;
+	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(context_.cusolver_handle, n, nnz, descr, h_data.data(),
+												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
 
-	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	cusparseDcsrilu02_bufferSize(handle, m, nnz, descr_M, d_csrVal, d_csrRowPtr, d_csrColInd, info_M, &pBufferSize_M);
-	cusparseDcsrsv2_bufferSize(handle, trans_L, m, nnz, descr_L, d_csrVal, d_csrRowPtr, d_csrColInd, info_L,
-							   &pBufferSize_L);
-	cusparseDcsrsv2_bufferSize(handle, trans_U, m, nnz, descr_U, d_csrVal, d_csrRowPtr, d_csrColInd, info_U,
-							   &pBufferSize_U);
+	std::vector<char> buffer(workspace);
 
-	pBufferSize = max(pBufferSize_M, max(pBufferSize_L, pBufferSize_U));
+	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
+											  h_rows.data(), info, 0.1f, buffer.data()));
 
-	// pBuffer returned by cudaMalloc is automatically aligned to 128 bytes.
-	cudaMalloc((void**)&pBuffer, pBufferSize);
 
-	// step 4: perform analysis of incomplete Cholesky on M
-	//         perform analysis of triangular solve on L
-	//         perform analysis of triangular solve on U
-	// The lower(upper) triangular part of M has the same sparsity pattern as L(U),
-	// we can do analysis of csrilu0 and csrsv2 simultaneously.
+	thrust::host_vector<index_t> hb_indptr = b_indptr;
+	thrust::host_vector<index_t> hb_indices = b_indices;
 
-	cusparseDcsrilu02_analysis(handle, m, nnz, descr_M, d_csrVal, d_csrRowPtr, d_csrColInd, info_M, policy_M, pBuffer);
-	status = cusparseXcsrilu02_zeroPivot(handle, info_M, &structural_zero);
-	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
+
+	thrust::host_vector<float> x_vec(cols * (b_indptr.size() - 1));
+
+	d_idxvec hx_indptr(b_indptr.size());
+	hx_indptr[0] = 0;
+
+	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		printf("A(%d,%d) is missing\n", structural_zero, structural_zero);
+		thrust::host_vector<float> b_vec(b_cols, 0.f);
+		auto start = hb_indptr[b_idx];
+		auto end = hb_indptr[b_idx - 1];
+		thrust::copy(b_data.begin() + start, b_data.begin() + end,
+					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
+
+		cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data());
+
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [](float x) { return x != 0; });
+
+		thrust::device_vector<float> hx_vec = x_vec;
+
+		auto size_before = x_indices.size();
+		x_indices.resize(x_indices.size() + x_nnz);
+		x_data.resize(x_data.size() + x_nnz);
+
+		hx_indptr[b_idx + 1] = hx_indptr[b_idx] + x_nnz;
+
+		thrust::copy_if(thrust::make_zip_iterator(hx_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
+						thrust::make_zip_iterator(hx_vec.end(), thrust::make_counting_iterator<index_t>(hx_vec.size())),
+						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
+						[](thrust::tuple<float, index_t> x) __device__ { return thrust::get<0>(x) != 0.f; });
 	}
 
-	cusparseDcsrsv2_analysis(handle, trans_L, m, nnz, descr_L, d_csrVal, d_csrRowPtr, d_csrColInd, info_L, policy_L,
-							 pBuffer);
+	x_indptr = hx_indptr;
 
-	cusparseDcsrsv2_analysis(handle, trans_U, m, nnz, descr_U, d_csrVal, d_csrRowPtr, d_csrColInd, info_U, policy_U,
-							 pBuffer);
-
-	// step 5: M = L * U
-	cusparseDcsrilu02(handle, m, nnz, descr_M, d_csrVal, d_csrRowPtr, d_csrColInd, info_M, policy_M, pBuffer);
-	status = cusparseXcsrilu02_zeroPivot(handle, info_M, &numerical_zero);
-	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
-	{
-		printf("U(%d,%d) is zero\n", numerical_zero, numerical_zero);
-	}
-
-	// step 6: solve L*z = x
-	cusparseDcsrsv2_solve(handle, trans_L, m, nnz, &alpha, descr_L, d_csrVal, d_csrRowPtr, d_csrColInd, info_L, d_x,
-						  d_z, policy_L, pBuffer);
-
-	// step 7: solve U*y = z
-	cusparseDcsrsv2_solve(handle, trans_U, m, nnz, &alpha, descr_U, d_csrVal, d_csrRowPtr, d_csrColInd, info_U, d_z,
-						  d_y, policy_U, pBuffer);
-
-	// step 6: free resources
-	cudaFree(pBuffer);
-	cusparseDestroyMatDescr(descr_M);
-	cusparseDestroyMatDescr(descr_L);
-	cusparseDestroyMatDescr(descr_U);
-	cusparseDestroyCsrilu02Info(info_M);
-	cusparseDestroyCsrsv2Info(info_L);
-	cusparseDestroyCsrsv2Info(info_U);
-	cusparseDestroy(handle);
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
+	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
 }
 
 void solver::solve_nonterminal_part()
@@ -552,7 +546,7 @@ void solver::solve_nonterminal_part()
 	d_idxvec U_cols(term_rows.size());
 
 	thrust::transform(term_rows.begin(), term_rows.end(), U_cols.begin(),
-					  [offset = terminal_vertices_n] __device__(index_t x) { return x - offset; });
+					  [offset = terminal_vertices_n](index_t x) __device__ { return x - offset; });
 
 	thrust::device_vector<float> U_data(term_rows.size(), -1.f);
 
@@ -581,7 +575,7 @@ void solver::solve_nonterminal_part()
 
 	thrust::transform(nb_indptr_csr.begin() + nonterminal_vertices_n, nb_indptr_csr.end(),
 					  nb_indptr_csr.begin() + nonterminal_vertices_n,
-					  [n_nnz] __device__(index_t x) { return x - n_nnz; });
+					  [n_nnz](index_t x) __device__ { return x - n_nnz; });
 
 	d_idxvec A_indptr, A_indices;
 	thrust::device_vector<float> A_data;
@@ -593,7 +587,38 @@ void solver::solve_nonterminal_part()
 
 	nb_indptr_csr[nonterminal_vertices_n] = n_nnz;
 
-	cusparseScscsm
+	csr_csc_switch(nb_indptr_csr.data().get(), nb_cols.data().get(), nb_data_csr.data().get(), nonterminal_vertices_n,
+				   nonterminal_vertices_n, n_nnz, nb_indptr_csc, nb_rows, nb_data_csc);
+
+
+	d_idxvec A_indptr_t, A_indices_t;
+	thrust::device_vector<float> A_data_t;
+
+	csr_csc_switch(A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), sccs_offsets_.size() - 1,
+				   nonterminal_vertices_n, n_nnz, A_indptr_t, A_indices_t, A_data_t);
+
+
+	d_idxvec X_indptr, X_indices;
+	thrust::device_vector<float> X_data;
+
+	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
+					 A_indptr_t, A_indices_t, A_data_t, sccs_offsets_.size() - 1, X_indptr, X_indices, X_data);
+
+
+	nonterm_indptr.resize(U_indptr_csr.size());
+	index_t nonterm_nnz = U_indptr_csr.back() + X_indptr.back();
+	nonterm_rows.resize(nonterm_nnz);
+	nonterm_data.resize(nonterm_nnz);
+
+	thrust::transform(thrust::make_zip_iterator(U_indptr_csr.begin(), X_indptr.begin()),
+					  thrust::make_zip_iterator(U_indptr_csr.end(), X_indptr.end()), nonterm_indptr.begin(),
+					  [](thrust::tuple<index_t, index_t> x)
+						  __device__ { return thrust::get<0>(x) + thrust::get<1>(x); });
+
+
+	hstack(nonterm_indptr.data().get(), nonterm_rows.data().get(), nonterm_data.data().get(), U_indptr_csr.data().get(),
+		   X_indptr.data().get(), U_cols.data().get(), X_indices.data().get(), U_data.data().get(), X_data.data().get(),
+		   nonterm_indptr.size() - 1);
 }
 
 void solver::solve()
