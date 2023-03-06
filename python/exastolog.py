@@ -274,48 +274,51 @@ class TransitionGraph:
         return original_table[sorted_vertices, :][:, sorted_vertices], sorted_vertices
 
     def sort(self):
-        count, disconnected_subgraphs = scipy.sparse.csgraph.connected_components(
-            self.table, directed=True, connection='weak')
+        subgraph_indices = np.arange(self.table.shape[0], dtype=int)
 
-        for i in range(count):
-            subgraph_indices = np.argwhere(
-                disconnected_subgraphs == i).flatten()
+        # whole component is within empty part of initial state => skip
+        if np.all(self.initial_state[subgraph_indices] == 0):
+            return
 
-            # whole component is within empty part of initial state => skip
-            if np.all(self.initial_state[subgraph_indices] == 0):
-                continue
+        subtable = self.table[subgraph_indices, :][:, subgraph_indices]
 
-            subtable = self.table[subgraph_indices, :][:, subgraph_indices]
+        subnodes_count = len(subgraph_indices)
 
-            subnodes_count = len(subgraph_indices)
+        if (subnodes_count == 1):
+            self.sorted_subgraphs.append((1, [[0]], [0, 1], [0]))
+            return
 
-            if (subnodes_count == 1):
-                self.sorted_subgraphs.append((1, [[0]], [0, 1], [0]))
-                continue
+        sccs, metagraph = self.create_metagraph(subtable)
 
-            sccs, metagraph = self.create_metagraph(subtable)
+        print(sccs)
 
-            if len(sccs) == 1:
-                self.sorted_subgraphs.append(
-                    (subgraph_indices, subtable, [0, subnodes_count], list(range(subnodes_count))))
-                continue
-
-            sccs_ordering, terminal_start_idx = self.toposort(metagraph)
-
-            sorted_subtable, sorted_subvertices = self.build_sorted_transition_table(subtable,
-                                                                                     sccs, sccs_ordering)
-
-            terminal_offsets = [0]
-
-            for i in range(terminal_start_idx, len(sccs_ordering)):
-                terminal_offsets.append(
-                    terminal_offsets[-1] + len(sccs[sccs_ordering[i]]))
-
-            terminal_offsets = [
-                x + (subnodes_count - terminal_offsets[-1]) for x in terminal_offsets]
-
+        if len(sccs) == 1:
             self.sorted_subgraphs.append(
-                (subgraph_indices, sorted_subtable, terminal_offsets, sorted_subvertices))
+                (subgraph_indices, subtable, [0, subnodes_count], list(range(subnodes_count))))
+            return
+
+        sccs_ordering, terminal_start_idx = self.toposort(metagraph)
+
+        print(terminal_start_idx)
+        print(sccs_ordering)
+
+        #sccs_ordering = np.array([0, 3, 5, 6, 7, 1, 2, 4])
+
+        sorted_subtable, sorted_subvertices = self.build_sorted_transition_table(subtable,
+                                                                                    sccs, sccs_ordering)
+
+        #print((sorted_subtable - scipy.sparse.diags([-1] * 8)).todense())
+        terminal_offsets = [0]
+
+        for i in range(terminal_start_idx, len(sccs_ordering)):
+            terminal_offsets.append(
+                terminal_offsets[-1] + len(sccs[sccs_ordering[i]]))
+
+        terminal_offsets = [
+            x + (subnodes_count - terminal_offsets[-1]) for x in terminal_offsets]
+
+        self.sorted_subgraphs.append(
+            (subgraph_indices, sorted_subtable, terminal_offsets, sorted_subvertices))
 
 
 class Solution:
@@ -409,6 +412,9 @@ class Solution:
 
             R = self.compute_column_nullspace(subtable, terminal_offsets)
             L = self.compute_row_nullspace(subtable, terminal_offsets, R)
+
+            print(R.todense())
+            print(L.todense())
 
             self.initial_state[subgraph_indices[sorted_subvertices]
                                ] = R @ L @ self.initial_state[subgraph_indices[sorted_subvertices]]
