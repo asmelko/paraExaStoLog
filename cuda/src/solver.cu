@@ -680,9 +680,15 @@ void solver::solve_nonterminal_part()
 	{
 		thrust::copy(sccs_.begin() + sccs_offsets_.back(), sccs_.end(), submatrix_vertex_mapping_.begin());
 
+	print("U mapping ", submatrix_vertex_mapping_);
+	print("X before  ", X_indices);
+
 		thrust::transform(X_indices.begin(), X_indices.end(), X_indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
+
+	print("X after   ", X_indices);
 	}
+
 
 	// hstack(U,X)
 	{
@@ -690,7 +696,7 @@ void solver::solve_nonterminal_part()
 		int gridsize = (2 * (nonterm_indptr.size() - 1) + blocksize - 1) / blocksize;
 		hstack<<<gridsize, blocksize>>>(nonterm_indptr.data().get(), nonterm_rows.data().get(),
 										nonterm_data.data().get(), U_indptr_csr.data().get(), X_indptr.data().get(),
-										U_cols.data().get(), X_indices.data().get(), U_data.data().get(),
+										term_rows.data().get(), X_indices.data().get(), U_data.data().get(),
 										X_data.data().get(), nonterm_indptr.size() - 1);
 
 		CHECK_CUDA(cudaDeviceSynchronize());
