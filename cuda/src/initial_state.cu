@@ -81,9 +81,10 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	std::cout << "fixed/nonfixed" << fixed_states << " " << nonfixed_states << std ::endl;
 	std::cout << "prob" << fixed_probability / (float)fixed_states << std ::endl;
 
-	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
-					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
-					 [val = fixed_probability / (float)fixed_states] __device__(float& x) { x = val; });
+	thrust::for_each(fixed_indices.begin(), fixed_indices.end(),
+					 [val = fixed_probability / (float)fixed_states, ptr = state.data().get()] __device__(index_t idx) {
+						 ptr[idx] = val;
+					 });
 
 	print("fixed indices ", fixed_indices);
 
