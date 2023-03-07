@@ -40,7 +40,7 @@ public:
 	d_idxvec term_indptr, term_rows;
 	thrust::device_vector<float> term_data;
 
-	d_idxvec nonterm_indptr, nonterm_rows;
+	d_idxvec nonterm_indptr, nonterm_cols;
 	thrust::device_vector<float> nonterm_data;
 
 	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
