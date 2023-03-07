@@ -288,9 +288,13 @@ TEST(solver, kras)
 
 	table.construct_table();
 
+	std::cout << "after table" << std::endl;
+
 	transition_graph g(table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
+
+	std::cout << "after graph" << std::endl;
 
 	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
 
