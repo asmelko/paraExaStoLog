@@ -1,7 +1,7 @@
 #include <thrust/transform.h>
 
 #include "initial_state.h"
-#include "transition_table.h
+#include "transition_table.h"
 
 #include "utils.h"
 
