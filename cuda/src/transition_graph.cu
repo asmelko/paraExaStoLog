@@ -57,12 +57,13 @@ void transition_graph::find_terminals()
 		thrust::make_zip_iterator(meta_src_transitions.begin(), thrust::make_constant_iterator<index_t>(0)),
 		zip_non_equal_ftor());
 
-	std::cout << "copyif " << std::endl;
 
 	meta_src_transitions.resize(thrust::get<0>(meta_src_transitions_end.get_iterator_tuple())
 								- meta_src_transitions.begin());
 
-	terminals = d_idxvec(meta_src_transitions.size());
+	std::cout << "meta_src_transitions " << meta_src_transitions.size() << std::endl;
+
+	terminals = d_idxvec(scc_ids.size());
 
 	auto terminal_end = thrust::set_difference(scc_ids.begin(), scc_ids.end(), meta_src_transitions.begin(),
 											   meta_src_transitions.end(), terminals.begin());
