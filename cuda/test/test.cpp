@@ -276,3 +276,43 @@ TEST(solver, toy3)
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.25f)));
 }
+
+TEST(solver, kras)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/krasmodel15vars.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
+
+	solver s(context, table, std::move(g), std::move(st));
+
+	s.solve();
+
+	auto n = 1 << model.nodes.size();
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(n);
+	thrust::host_vector<float> nonzero_data(n);
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 3));
+	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.25f)));
+}
