@@ -17,6 +17,11 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 							 const std::vector<bool>& fixed_node_values, float fixed_probability)
 
 {
+	std::cout << "node names ";
+	for (int i = 0; i < node_names.size(); i++)
+		std::cout << node_names[i] << " ";
+	std::cout << std::endl;
+
 	if (fixed_node_names.empty())
 	{
 		state = thrust::device_vector<float>(1ULL << node_names.size(), 1.f / (1ULL << node_names.size()));
@@ -27,6 +32,7 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	std::vector<index_t> fixed_nodes;
 	for (const auto& fn : fixed_node_names)
 	{
+		std::cout << fn << std::endl;
 		auto it = std::find(node_names.begin(), node_names.end(), fn);
 
 		if (it == node_names.end())
@@ -59,7 +65,7 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 				free_nodes.push_back(i);
 
 		std::cout << "free nodes ";
-		for (int i = 0; i < fixed_nodes.size(); i++)
+		for (int i = 0; i < free_nodes.size(); i++)
 			std::cout << free_nodes[i] << " ";
 		std::cout << std::endl;
 
