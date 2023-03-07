@@ -4,13 +4,13 @@
 #include "transition_table.h"
 #include "utils.h"
 
-struct const_transform_ftor : public thrust::unary_function<index_t, float>
+struct const_transform_ftor : public thrust::unary_function<float, void>
 {
 	float value;
 
 	const_transform_ftor(float value) : value(value) {}
 
-	__host__ __device__ float operator()(index_t) const { return value; }
+	__host__ __device__ void operator()(float& x) const { x = value; }
 };
 
 initial_state::initial_state(const std::vector<std::string>& node_names,
@@ -81,10 +81,9 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	std::cout << "fixed/nonfixed" << fixed_states << " " << nonfixed_states << std ::endl;
 	std::cout << "prob" << fixed_probability / (float)fixed_states << std ::endl;
 
-	thrust::for_each(fixed_indices.begin(), fixed_indices.end(),
-					 [val = fixed_probability / (float)fixed_states, ptr = state.data().get()] __device__(index_t idx) {
-						 ptr[idx] = val;
-					 });
+	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
+					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
+					 const_transform_ftor(fixed_probability / (float)fixed_states));
 
 	print("fixed indices ", fixed_indices);
 
