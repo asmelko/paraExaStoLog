@@ -32,6 +32,12 @@ void transition_graph::find_terminals()
 
 	sccs_count = scc_ids.size();
 
+	if (sccs_count == 1)
+	{
+		terminals = scc_ids;
+		return;
+	}
+
 	auto in_begin = thrust::make_zip_iterator(thrust::make_permutation_iterator(labels.begin(), cols_.begin()),
 											  thrust::make_permutation_iterator(labels.begin(), rows_.begin()));
 

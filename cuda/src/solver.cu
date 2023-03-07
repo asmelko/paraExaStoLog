@@ -456,8 +456,8 @@ void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, 
 
 void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data,
 							  int n, int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
-							  const thrust::device_vector<float>& b_data, int b_cols, d_idxvec& x_indptr,
-							  d_idxvec& x_indices, thrust::device_vector<float>& x_data)
+							  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
+							  thrust::device_vector<float>& x_data)
 {
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
@@ -508,7 +508,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		thrust::host_vector<float> b_vec(b_cols, 0.f);
+		thrust::host_vector<float> b_vec(n, 0.f);
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
@@ -517,9 +517,9 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 		CHECK_CUSOLVER(
 			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
 
-		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [](float x) { return !is_zero(x); });
-
 		thrust::device_vector<float> dx_vec = x_vec;
+
+		auto x_nnz = thrust::count_if(dx_vec.begin(), dx_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
@@ -549,6 +549,15 @@ void solver::solve_nonterminal_part()
 
 	std::cout << "terminal vertices " << terminal_vertices_n << std::endl;
 	std::cout << "nonterminal vertices " << nonterminal_vertices_n << std::endl;
+
+	if (nonterminal_vertices_n == 0)
+	{
+		nonterm_indptr = term_indptr;
+		nonterm_rows = term_rows;
+		nonterm_data = thrust::device_vector<float>(term_rows.size(), 1.f);
+
+		return;
+	}
 
 	// -U
 	d_idxvec& U_indptr_csr = term_indptr;
@@ -647,7 +656,7 @@ void solver::solve_nonterminal_part()
 	thrust::device_vector<float> X_data;
 
 	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
-					 A_indptr, A_indices, A_data, sccs_offsets_.size() - 1, X_indptr, X_indices, X_data);
+					 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
 
 
 	print("X csr indptr  ", X_indptr);
