@@ -43,6 +43,8 @@ public:
 	d_idxvec nonterm_indptr, nonterm_cols;
 	thrust::device_vector<float> nonterm_data;
 
+	thrust::device_vector<float> final_state;
+
 	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
 						   d_idxvec& submatrix_rows, thrust::device_vector<float>& submatrix_data,
 						   bool mapping_prefilled = false);
@@ -59,6 +61,8 @@ public:
 	void solve_terminal_part();
 
 	void solve_nonterminal_part();
+
+	void compute_final_states();
 
 	void solve();
 };

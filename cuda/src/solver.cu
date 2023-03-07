@@ -708,9 +708,79 @@ void solver::solve_nonterminal_part()
 	}
 }
 
+void solver::compute_final_states()
+{
+	thrust::device_vector<float> y(terminals_.size());
+	{
+		float alpha = 1.0f;
+		float beta = 0.0f;
+
+		cusparseSpMatDescr_t matA;
+		cusparseDnVecDescr_t vecX, vecY;
+		size_t bufferSize = 0;
+
+		// Create sparse matrix A in CSR format
+		CHECK_CUSPARSE(cusparseCreateCsr(&matA, terminals_.size(), labels_.size(), nonterm_data.size(),
+										 nonterm_indptr.data().get(), nonterm_cols.data().get(),
+										 nonterm_data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+										 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+		// Create dense vector X
+		CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, labels_.size(), initial_state_.data().get(), CUDA_R_32F));
+		// Create dense vector y
+		CHECK_CUSPARSE(cusparseCreateDnVec(&vecY, terminals_.size(), y.data().get(), CUDA_R_32F));
+		// allocate an external buffer if needed
+		CHECK_CUSPARSE(cusparseSpMV_bufferSize(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
+											   vecX, &beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
+		thrust::device_vector<char> buffer(bufferSize);
+
+		// execute SpMV
+		CHECK_CUSPARSE(cusparseSpMV(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecX,
+									&beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, buffer.data().get()));
+
+		// destroy matrix/vector descriptors
+		CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+		CHECK_CUSPARSE(cusparseDestroyDnVec(vecX));
+		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
+	}
+
+	final_state.resize(labels_.size());
+	{
+		float alpha = 1.0f;
+		float beta = 0.0f;
+
+		cusparseSpMatDescr_t matA;
+		cusparseDnVecDescr_t vecX, vecY;
+		size_t bufferSize = 0;
+
+		// Create sparse matrix A in CSC format
+		CHECK_CUSPARSE(cusparseCreateCsc(&matA, labels_.size(), terminals_.size(), term_data.size(),
+										 term_indptr.data().get(), term_rows.data().get(), term_data.data().get(),
+										 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+		// Create dense vector y
+		CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, terminals_.size(), y.data().get(), CUDA_R_32F));
+		// Create dense vector final
+		CHECK_CUSPARSE(cusparseCreateDnVec(&vecY, labels_.size(), final_state.data().get(), CUDA_R_32F));
+		// allocate an external buffer if needed
+		CHECK_CUSPARSE(cusparseSpMV_bufferSize(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
+											   vecX, &beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
+		thrust::device_vector<char> buffer(bufferSize);
+
+		// execute SpMV
+		CHECK_CUSPARSE(cusparseSpMV(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecX,
+									&beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, buffer.data().get()));
+
+		// destroy matrix/vector descriptors
+		CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+		CHECK_CUSPARSE(cusparseDestroyDnVec(vecX));
+		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
+	}
+}
+
 void solver::solve()
 {
 	reorganize_terminal_sccs();
 	solve_terminal_part();
 	solve_nonterminal_part();
+
+	compute_final_states();
 }
