@@ -1,7 +1,9 @@
 #include <thrust/transform.h>
 
 #include "initial_state.h"
-#include "transition_table.h"
+#include "transition_table.h
+
+#include "utils.h"
 
 struct const_transform_ftor : public thrust::unary_function<float, float>
 {
@@ -77,8 +79,13 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 
 	state = thrust::device_vector<float>(fixed_states + nonfixed_states, (1.f - fixed_probability) / nonfixed_states);
 
+	std::cout << "prob" << fixed_probability / (float)fixed_states << std ::endl;
+
 	thrust::transform(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					  thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
 					  thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					  const_transform_ftor(fixed_probability / (float)fixed_states));
+
+	
+	print("initial state ", state);
 }
