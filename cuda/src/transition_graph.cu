@@ -7,7 +7,7 @@
 #include "utils.h"
 
 transition_graph::transition_graph(const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr)
-	: indptr_(indptr), rows_(rows), cols_(cols), vertices_count_(indptr_.size() - 1)
+	: indptr_(indptr), rows_(rows), cols_(cols), vertices_count_(indptr_.size() - 1), edges_count_(rows.size())
 {}
 
 struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, bool>
@@ -23,6 +23,7 @@ void transition_graph::find_terminals()
 	labels = d_idxvec(vertices_count_);
 
 	std::cout << "vertices count " << vertices_count_ << std::endl;
+	std::cout << "edges count " << edges_count_ << std::endl;
 
 	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), rows_.data().get());
 	sccd.run_scc(labels.data().get());
@@ -50,7 +51,7 @@ void transition_graph::find_terminals()
 	auto in_end = thrust::make_zip_iterator(thrust::make_permutation_iterator(labels.begin(), cols_.end()),
 											thrust::make_permutation_iterator(labels.begin(), rows_.end()));
 
-	d_idxvec meta_src_transitions(vertices_count_);
+	d_idxvec meta_src_transitions(edges_count_);
 
 	auto meta_src_transitions_end = thrust::copy_if(
 		in_begin, in_end,

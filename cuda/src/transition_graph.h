@@ -6,7 +6,7 @@ class transition_graph
 {
 	const d_idxvec &rows_, &cols_, &indptr_;
 
-	size_t vertices_count_;
+	size_t vertices_count_, edges_count_;
 
 public:
 	d_idxvec terminals, labels;
