@@ -181,9 +181,6 @@ void solver::reorganize_terminal_sccs()
 										 return thrust::get<1>(x) == terminal_idx;
 									 });
 
-		print("partitioned sccs ", sccs_);
-		print("partitioned labs ", labels_);
-
 		sccs_offsets_.push_back(thrust::get<0>(partition_point.get_iterator_tuple()) - sccs_.begin());
 	}
 }
@@ -194,8 +191,6 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 {
 	submatrix_indptr.resize(n + 1);
 	submatrix_indptr[0] = 0;
-
-	print("vertices mapping ", submatrix_vertex_mapping_);
 
 	// this creates indptr of scc in CSC
 	{
@@ -211,11 +206,7 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 			submatrix_indptr.begin() + 1,
 			[] __device__(thrust::tuple<index_t, index_t> x) { return 1 + thrust::get<1>(x) - thrust::get<0>(x); });
 
-		print("submatrix_indptr sizes before ", submatrix_indptr);
-
 		thrust::inclusive_scan(submatrix_indptr.begin(), submatrix_indptr.end(), submatrix_indptr.begin());
-
-		print("submatrix_indptr sizes after  ", submatrix_indptr);
 	}
 
 	index_t nnz = submatrix_indptr.back();
@@ -235,8 +226,6 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 
 	// finally we transform rows so they start from 0
 	{
-		print("submatrix_rows before  ", submatrix_rows);
-
 		if (!mapping_prefilled)
 		{
 			// create map for scc vertices so they start from 0
@@ -246,8 +235,6 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 
 		thrust::transform(submatrix_rows.begin(), submatrix_rows.end(), submatrix_rows.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
-
-		print("submatrix_rows after   ", submatrix_rows);
 	}
 
 	return nnz;
@@ -286,8 +273,6 @@ void solver::solve_terminal_part()
 		CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, scc_indptr.data().get(), nnz, scc_size,
 										scc_cols.data().get(), CUSPARSE_INDEX_BASE_ZERO));
 
-		print("scc_cols ", scc_cols);
-
 		std::cout << "Row to remove" << scc_size - 1 << std::endl;
 
 		// this removes last row
@@ -309,11 +294,6 @@ void solver::solve_terminal_part()
 		// this compresses rows back into indptr
 		CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, scc_cols.data().get(), scc_cols.size(), scc_size,
 										scc_indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
-
-		print("scc_indptr -1r: ", scc_indptr);
-		print("scc_rows   -1r: ", scc_rows);
-		print("scc_data   -1r: ", scc_data);
-		print("scc_cols   -1r: ", scc_cols);
 
 		// now we do minors
 		d_idxvec minor_indptr(scc_indptr.size()), minor_rows(scc_rows.size());
@@ -338,10 +318,6 @@ void solver::solve_terminal_part()
 			thrust::copy(scc_data.begin(), scc_data.begin() + h_scc_indptr[minor_i], minor_data.begin());
 			thrust::copy(scc_data.begin() + h_scc_indptr[minor_i + 1], scc_data.end(),
 						 minor_data.begin() + h_scc_indptr[minor_i]);
-
-			print("indptr -1c: ", minor_indptr);
-			print("rows   -1c: ", minor_rows);
-			print("data   -1c: ", minor_data);
 
 			h_minors[minor_i] = std::abs(
 				determinant(minor_indptr, minor_rows, minor_data, scc_indptr.size() - 2, scc_data.size() - offset));
@@ -572,10 +548,6 @@ void solver::solve_nonterminal_part()
 
 	thrust::device_vector<float> U_data(term_rows.size(), -1.f);
 
-	print("-U indptr ", U_indptr_csr);
-	print("-U cols   ", U_cols);
-	print("-U data   ", U_data);
-
 	// NB
 
 	d_idxvec nb_indptr_csc, nb_rows;
@@ -597,10 +569,6 @@ void solver::solve_nonterminal_part()
 	auto nnz = take_submatrix(nonterminal_vertices_n, sccs_.begin() + sccs_offsets_.back(), nb_indptr_csc, nb_rows,
 							  nb_data_csc, true);
 
-	print("NB csc indptr  ", nb_indptr_csc);
-	print("NB csc indices ", nb_rows);
-	print("NB csc data    ", nb_data_csc);
-
 	d_idxvec nb_indptr_csr, nb_cols;
 	thrust::device_vector<float> nb_data_csr;
 
@@ -608,10 +576,6 @@ void solver::solve_nonterminal_part()
 	csr_csc_switch(nb_indptr_csc.data().get(), nb_rows.data().get(), nb_data_csc.data().get(), nonterminal_vertices_n,
 				   nonterminal_vertices_n + terminal_vertices_n, nnz, nb_indptr_csr, nb_cols, nb_data_csr);
 
-
-	print("NB csr indptr  ", nb_indptr_csr);
-	print("NB csr indices ", nb_cols);
-	print("NB csr data    ", nb_data_csr);
 
 	index_t n_nnz = nb_indptr_csr[nonterminal_vertices_n];
 	index_t b_nnz = nnz - n_nnz;
@@ -624,8 +588,6 @@ void solver::solve_nonterminal_part()
 					  nb_indptr_csr.begin() + nonterminal_vertices_n,
 					  [n_nnz] __device__(index_t x) { return x - n_nnz; });
 
-	print("NB csr indptr after B offset ", nb_indptr_csr);
-
 	d_idxvec A_indptr, A_indices;
 	thrust::device_vector<float> A_data;
 
@@ -633,10 +595,6 @@ void solver::solve_nonterminal_part()
 		   terminal_vertices_n, U_cols.size(), nb_indptr_csr.data().get() + nonterminal_vertices_n,
 		   nb_cols.data().get() + n_nnz, nb_data_csr.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n,
 		   b_nnz, A_indptr, A_indices, A_data);
-
-	print("A csr indptr  ", A_indptr);
-	print("A csr indices ", A_indices);
-	print("A csr data    ", A_data);
 
 	nb_indptr_csr[nonterminal_vertices_n] = n_nnz;
 
@@ -647,21 +605,11 @@ void solver::solve_nonterminal_part()
 	nb_rows.resize(n_nnz);
 	nb_data_csc.resize(n_nnz);
 
-	print("N csc indptr  ", nb_indptr_csc);
-	print("N csc indices ", nb_rows);
-	print("N csc data    ", nb_data_csc);
-
-
 	d_idxvec X_indptr, X_indices;
 	thrust::device_vector<float> X_data;
 
 	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
 					 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
-
-
-	print("X csr indptr  ", X_indptr);
-	print("X csr indices ", X_indices);
-	print("X csr data    ", X_data);
 
 
 	nonterm_indptr.resize(U_indptr_csr.size());
@@ -682,13 +630,8 @@ void solver::solve_nonterminal_part()
 	{
 		thrust::copy(sccs_.begin() + sccs_offsets_.back(), sccs_.end(), submatrix_vertex_mapping_.begin());
 
-		print("U mapping ", submatrix_vertex_mapping_);
-		print("X before  ", X_indices);
-
 		thrust::transform(X_indices.begin(), X_indices.end(), X_indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
-
-		print("X after   ", X_indices);
 	}
 
 
