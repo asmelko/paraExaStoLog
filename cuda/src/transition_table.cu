@@ -10,8 +10,12 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 
 	transition_ftor(const std::vector<index_t>& free_v, index_t fixed)
 	{
-		for (size_t i = 0; i < free_v.size(); i++)
-			free_vars[i] = 1ULL << free_v[i];
+		size_t i = 0;
+		for (; i < free_v.size(); i++)
+			free_vars[i] = 1 << free_v[i];
+
+		for (; i < 32; i++)
+			free_vars[i] = 0;
 
 		this->fixed = fixed;
 	}
