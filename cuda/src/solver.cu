@@ -638,10 +638,6 @@ void solver::solve_nonterminal_part()
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 	}
 
-	print("X_indptr  ", X_indptr);
-	print("X_indices ", X_indices);
-	print("X_data    ", X_data);
-
 	// hstack(U,X)
 	{
 		int blocksize = 512;

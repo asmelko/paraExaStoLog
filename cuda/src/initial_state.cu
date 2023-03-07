@@ -1,8 +1,7 @@
-#include "initial_state.h"
-
-#include "transition_table.h"
-
 #include <thrust/transform.h>
+
+#include "initial_state.h"
+#include "transition_table.h"
 
 struct const_transform_ftor : public thrust::unary_function<float, float>
 {
@@ -38,6 +37,11 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 		fixed_nodes.push_back(std::distance(node_names.begin(), it));
 	}
 
+	std::cout << "fixed nodes ";
+	for (int i = 0; i < fixed_nodes.size(); i++)
+		std::cout << fixed_nodes[i] << " ";
+	std::cout << std::endl;
+
 	d_idxvec fixed_indices;
 
 	{
@@ -46,11 +50,18 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 		for (size_t i = 0; i < fixed_nodes.size(); i++)
 			fixed_val += (1 << fixed_nodes[i]) * fixed_node_values[i];
 
+		std::cout << "fixed_val" << fixed_val << std::endl;
+
 		std::vector<index_t> free_nodes;
 
 		for (size_t i = 0; i < node_names.size(); i++)
 			if (std::find(fixed_nodes.begin(), fixed_nodes.end(), i) == fixed_nodes.end())
 				free_nodes.push_back(i);
+
+		std::cout << "free nodes ";
+		for (int i = 0; i < fixed_nodes.size(); i++)
+			std::cout << free_nodes[i] << " ";
+		std::cout << std::endl;
 
 		fixed_indices = transition_table::construct_transition_vector(free_nodes, fixed_val);
 	}
@@ -63,5 +74,5 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	thrust::transform(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					  thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
 					  thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
-					  const_transform_ftor(fixed_probability / fixed_states));
+					  const_transform_ftor(fixed_probability / (float)fixed_states));
 }
