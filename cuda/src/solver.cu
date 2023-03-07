@@ -694,6 +694,7 @@ void solver::compute_final_states()
 	}
 
 	print("y ", y);
+	print("initial state ", initial_state_);
 
 	final_state.resize(labels_.size());
 	{
