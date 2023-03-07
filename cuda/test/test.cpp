@@ -90,69 +90,6 @@ TEST(initial_value, toy)
 	ASSERT_THAT(state, ::testing::ElementsAre(1.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f));
 }
 
-TEST(solver, toy2)
-{
-	model_builder builder;
-	auto model = builder.construct_model("data/toy2.bnet");
-
-	cu_context context;
-
-	transition_table table(context, model);
-
-	table.construct_table();
-
-	transition_graph g(table.rows, table.cols, table.indptr);
-
-	g.find_terminals();
-
-	thrust::host_vector<index_t> labels = g.labels;
-	thrust::host_vector<index_t> terminals = g.terminals;
-
-	ASSERT_EQ(g.sccs_count, 3);
-	ASSERT_THAT(labels, ::testing::ElementsAre(0, 0, 0, 3, 4, 0, 0, 0));
-	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
-
-	initial_state st(model.nodes, { "A" }, { true }, 1.f);
-
-	solver s(context, table, std::move(g), std::move(st));
-
-	s.solve();
-
-	thrust::host_vector<index_t> term_indptr = s.term_indptr;
-	thrust::host_vector<index_t> term_rows = s.term_rows;
-	thrust::host_vector<float> term_data = s.term_data;
-
-	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 6));
-	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
-	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
-
-	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
-	thrust::host_vector<index_t> nonterm_cols = s.nonterm_cols;
-	thrust::host_vector<float> nonterm_data = s.nonterm_data;
-
-	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
-	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 3, 4));
-	ASSERT_THAT(nonterm_data, ::testing::Each(::testing::Eq(1.f)));
-
-	thrust::host_vector<float> final_state = s.final_state;
-
-	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<index_t> nonzero_data(labels.size());
-
-	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
-								 nonzero_indices.begin(), thrust::identity<float>());
-	nonzero_indices.resize(i_end - nonzero_indices.begin());
-
-	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
-							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
-							  nonzero_data.begin());
-	nonzero_data.resize(d_end - nonzero_data.begin());
-
-	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
-	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
-}
-
 TEST(solver, toy)
 {
 	model_builder builder;
@@ -199,7 +136,7 @@ TEST(solver, toy)
 	thrust::host_vector<float> final_state = s.final_state;
 
 	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<index_t> nonzero_data(labels.size());
+	thrust::host_vector<float> nonzero_data(labels.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
 								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
@@ -213,6 +150,69 @@ TEST(solver, toy)
 
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(2, 4));
 	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.5f)));
+}
+
+TEST(solver, toy2)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy2.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	thrust::host_vector<index_t> labels = g.labels;
+	thrust::host_vector<index_t> terminals = g.terminals;
+
+	ASSERT_EQ(g.sccs_count, 3);
+	ASSERT_THAT(labels, ::testing::ElementsAre(0, 0, 0, 3, 4, 0, 0, 0));
+	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
+
+	initial_state st(model.nodes, { "A", "B", "C" }, { false, false, false }, 1.f);
+
+	solver s(context, table, std::move(g), std::move(st));
+
+	s.solve();
+
+	thrust::host_vector<index_t> term_indptr = s.term_indptr;
+	thrust::host_vector<index_t> term_rows = s.term_rows;
+	thrust::host_vector<float> term_data = s.term_data;
+
+	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 6));
+	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
+	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
+
+	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
+	thrust::host_vector<index_t> nonterm_cols = s.nonterm_cols;
+	thrust::host_vector<float> nonterm_data = s.nonterm_data;
+
+	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
+	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 3, 4));
+	ASSERT_THAT(nonterm_data, ::testing::Each(::testing::Eq(1.f)));
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(labels.size());
+	thrust::host_vector<float> nonzero_data(labels.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
+	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 }
 
 TEST(solver, toy3)
@@ -236,7 +236,7 @@ TEST(solver, toy3)
 	ASSERT_EQ(g.sccs_count, 1);
 	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
 
-	initial_state st(model.nodes, { "A" }, { true }, 1.f);
+	initial_state st(model.nodes, { "A", "B" }, { false, false }, 1.f);
 
 	solver s(context, table, std::move(g), std::move(st));
 
@@ -261,7 +261,7 @@ TEST(solver, toy3)
 	thrust::host_vector<float> final_state = s.final_state;
 
 	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<index_t> nonzero_data(labels.size());
+	thrust::host_vector<float> nonzero_data(labels.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
 								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
