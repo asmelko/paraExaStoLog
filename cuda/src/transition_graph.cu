@@ -22,8 +22,12 @@ void transition_graph::find_terminals()
 {
 	labels = d_idxvec(vertices_count_);
 
+	std::cout << "vertices count " << vertices_count_ << std::endl;
+
 	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), rows_.data().get());
 	sccd.run_scc(labels.data().get());
+
+	std::cout << "labeled " << std::endl;
 
 	d_idxvec scc_ids = labels;
 	thrust::sort(scc_ids.begin(), scc_ids.end());
@@ -31,6 +35,8 @@ void transition_graph::find_terminals()
 	scc_ids.resize(ids_end - scc_ids.begin());
 
 	sccs_count = scc_ids.size();
+
+	std::cout << "sccs size " << sccs_count << std::endl;
 
 	if (sccs_count == 1)
 	{
@@ -51,6 +57,8 @@ void transition_graph::find_terminals()
 		thrust::make_zip_iterator(meta_src_transitions.begin(), thrust::make_constant_iterator<index_t>(0)),
 		zip_non_equal_ftor());
 
+	std::cout << "copyif " << std::endl;
+
 	meta_src_transitions.resize(thrust::get<0>(meta_src_transitions_end.get_iterator_tuple())
 								- meta_src_transitions.begin());
 
@@ -58,6 +66,8 @@ void transition_graph::find_terminals()
 
 	auto terminal_end = thrust::set_difference(scc_ids.begin(), scc_ids.end(), meta_src_transitions.begin(),
 											   meta_src_transitions.end(), terminals.begin());
+
+	std::cout << "diff " << std::endl;
 
 	terminals.resize(terminal_end - terminals.begin());
 }
