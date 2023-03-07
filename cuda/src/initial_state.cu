@@ -84,9 +84,4 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
 					 const_transform_ftor(fixed_probability / (float)fixed_states));
-
-	print("fixed indices ", fixed_indices);
-
-
-	print("initial state ", state);
 }

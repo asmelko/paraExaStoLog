@@ -689,8 +689,6 @@ void solver::compute_final_states()
 		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
 	}
 
-	print("y ", y);
-
 	final_state.resize(labels_.size());
 	{
 		float alpha = 1.0f;
