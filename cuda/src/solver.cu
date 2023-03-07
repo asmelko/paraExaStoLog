@@ -329,6 +329,10 @@ void solver::solve_terminal_part()
 		thrust::transform(minors.begin(), minors.end(), term_data.begin() + sccs_offsets_[terminal_scc_idx - 1],
 						  [sum] __device__(float x) { return x / sum; });
 	}
+
+	print("terminal indptr  ", term_indptr);
+	print("terminal indices ", term_rows);
+	print("terminal data    ", term_data);
 }
 
 void solver::csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
