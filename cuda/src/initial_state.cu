@@ -2,16 +2,15 @@
 
 #include "initial_state.h"
 #include "transition_table.h"
-
 #include "utils.h"
 
-struct const_transform_ftor : public thrust::unary_function<float, float>
+struct const_transform_ftor : public thrust::unary_function<index_t, float>
 {
 	float value;
 
 	const_transform_ftor(float value) : value(value) {}
 
-	__host__ __device__ index_t operator()(float) const { return value; }
+	__host__ __device__ float operator()(index_t) const { return value; }
 };
 
 initial_state::initial_state(const std::vector<std::string>& node_names,
@@ -82,13 +81,12 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	std::cout << "fixed/nonfixed" << fixed_states << " " << nonfixed_states << std ::endl;
 	std::cout << "prob" << fixed_probability / (float)fixed_states << std ::endl;
 
-	thrust::transform(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
-					  thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
-					  thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
-					  const_transform_ftor(fixed_probability / (float)fixed_states));
+	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
+					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
+					 [val = fixed_probability / (float)fixed_states] __device__(float& x) { x = val; });
 
 	print("fixed indices ", fixed_indices);
 
-	
+
 	print("initial state ", state);
 }
