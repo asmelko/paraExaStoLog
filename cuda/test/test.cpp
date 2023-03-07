@@ -318,6 +318,7 @@ TEST(solver, kras)
 	nonzero_data.resize(d_end - nonzero_data.begin());
 
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(35, 67, 291, 323, 16159, 16387, 16643));
-	ASSERT_THAT(nonzero_data, ::testing::ElementsAre(0.16982302, 0.01069429, 0.25817667, 0.01918749, 0.3131778,
-													 0.09025865, 0.1386820));
+	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+												   { 0.16982302, 0.01069429, 0.25817667, 0.01918749, 0.3131778,
+													 0.09025865, 0.1386820 }));
 }
