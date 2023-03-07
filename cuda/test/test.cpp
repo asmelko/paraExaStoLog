@@ -1,5 +1,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <thrust/copy.h>
 #include <thrust/host_vector.h>
 
 #include "solver.h"
@@ -132,6 +133,24 @@ TEST(solver, toy2)
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 3, 4));
 	ASSERT_THAT(nonterm_data, ::testing::Each(::testing::Eq(1.f)));
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(labels.size());
+	thrust::host_vector<index_t> nonzero_data(labels.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
+	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 }
 
 TEST(solver, toy)
@@ -155,7 +174,7 @@ TEST(solver, toy)
 	ASSERT_EQ(g.sccs_count, 8);
 	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
 
-	initial_state st(model.nodes, { "A" }, { true }, 1.f);
+	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
 	solver s(context, table, std::move(g), std::move(st));
 
@@ -176,6 +195,24 @@ TEST(solver, toy)
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 3, 5, 7, 2, 0, 6, 4, 0, 6));
 	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1, 1, 1, 1, 1, 0.5, 0.5, 1, 0.5, 0.5));
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(labels.size());
+	thrust::host_vector<index_t> nonzero_data(labels.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(2, 4));
+	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.5f)));
 }
 
 TEST(solver, toy3)
@@ -220,4 +257,22 @@ TEST(solver, toy3)
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(nonterm_data, ::testing::Each(::testing::Eq(1)));
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(labels.size());
+	thrust::host_vector<index_t> nonzero_data(labels.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(0, 1, 2, 3));
+	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.25f)));
 }
