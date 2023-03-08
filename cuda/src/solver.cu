@@ -1,5 +1,6 @@
 #include <cusolverSp_LOWLEVEL_PREVIEW.h>
 #include <cusparse_v2.h>
+#include <cusolverRf.h>
 #include <device_launch_parameters.h>
 
 #include <thrust/adjacent_difference.h>
