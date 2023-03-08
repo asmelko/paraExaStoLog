@@ -5,7 +5,7 @@
 #include "cuda_launch_config.hpp"
 #include <thrust/reduce.h>
 #include "timer.h"
-#define debug 0
+#define debug 1
 
 void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, int *h_scc_root) {
 	print_device_info(0);
@@ -46,7 +46,7 @@ void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int 
 	t.Start();
 	first_trim(m, d_in_row_offsets, d_in_column_indices, d_out_row_offsets, d_out_column_indices, d_status);
 	CUDA_SAFE_CALL(cudaMemcpy(h_status, d_status, m * sizeof(unsigned char), cudaMemcpyDeviceToHost));
-	/*
+	
 	if(debug) {
 		int num_trimmed = 0;
 		for (int i = 0; i < m; i ++) {
@@ -55,7 +55,7 @@ void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int 
 		}
 		printf("%d vertices trimmed in the first trimming\n", num_trimmed);
 	}
-	//*/
+	//
 	int source;
 	for (int i = 0; i < m; i++) { 
 		if(!is_removed(h_status[i])) {

@@ -53,6 +53,11 @@ d_idxvec transition_graph::compute_sccs()
 			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
 
+	print("in_offset ", in_offsets);
+	print("in_indice ", in_indices);
+	print("out_offset ", out_offset);
+	print("out_indice ", out_indices);
+
 	thrust::host_vector<index_t> hin_offsets = in_offsets;
 	thrust::host_vector<index_t> hin_indices = in_indices;
 	thrust::host_vector<index_t> hout_offsets = out_offset;
