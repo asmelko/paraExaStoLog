@@ -1,6 +1,6 @@
+#include <cusolverRf.h>
 #include <cusolverSp_LOWLEVEL_PREVIEW.h>
 #include <cusparse_v2.h>
-#include <cusolverRf.h>
 #include <device_launch_parameters.h>
 
 #include <thrust/adjacent_difference.h>
@@ -467,6 +467,8 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 	csrluInfoHost_t info;
 	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
 
+
+
 	cusparseMatDescr_t descr, descr_L, descr_U;
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
@@ -484,29 +486,6 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
-
-	{
-		std::cout << "Trisystem perm begin" << std::endl;
-
-		thrust::host_vector<index_t> p(n);
-		CHECK_CUSOLVER(cusolverSpXcsrsymrcmHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(),
-												p.data()));
-
-		size_t buffersize;
-		CHECK_CUSOLVER(cusolverSpXcsrperm_bufferSizeHost(context_.cusolver_handle, n, n, nnz, descr, h_indptr.data(),
-														 h_rows.data(), p.data(), p.data(), &buffersize));
-
-		thrust::host_vector<char> buffer;
-
-		thrust::host_vector<index_t> map(thrust::make_counting_iterator(0), thrust::make_counting_iterator(nnz));
-		CHECK_CUSOLVER(cusolverSpXcsrpermHost(context_.cusolver_handle, n, n, nnz, descr, h_indptr.data(),
-											  h_rows.data(), p.data(), p.data(), map.data(), buffer.data()));
-
-		auto tmp_data = h_data;
-		thrust::copy(thrust::make_permutation_iterator(tmp_data.begin(), map.begin()),
-					 thrust::make_permutation_iterator(tmp_data.begin(), map.end()), h_data.begin());
-	}
-
 
 
 	std::cout << "Trisystem analysis begin" << std::endl;
@@ -528,30 +507,31 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
-	thrust::host_vector<index_t> hb_indices = b_indices;
 
-
-	thrust::host_vector<float> x_vec(cols);
+	thrust::device_vector<float> x_vec(cols);
 
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		thrust::host_vector<float> b_vec(n, 0.f);
+		thrust::device_vector<float> b_vec(n, 0.f);
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
-					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
+					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
 
 		std::cout << "Trisystem solve begin" << std::endl;
 
-		CHECK_CUSOLVER(
-			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
+		int s;
+		CHECK_CUSOLVER(cusolverSpScsrlsvqr(context_.cusolver_handle, n, nnz, descr, data.data().get(),
+										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 2,
+										   x_vec.data().get(), &s));
 
-		thrust::device_vector<float> dx_vec = x_vec;
+		if (s != -1)
+			std::cout << "s" << s << std::endl;
 
-		auto x_nnz = thrust::count_if(dx_vec.begin(), dx_vec.end(), [] __device__(float x) { return !is_zero(x); });
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
@@ -559,8 +539,8 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 		hx_indptr[b_idx + 1] = hx_indptr[b_idx] + x_nnz;
 
-		thrust::copy_if(thrust::make_zip_iterator(dx_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
-						thrust::make_zip_iterator(dx_vec.end(), thrust::make_counting_iterator<index_t>(dx_vec.size())),
+		thrust::copy_if(thrust::make_zip_iterator(x_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
+						thrust::make_zip_iterator(x_vec.end(), thrust::make_counting_iterator<index_t>(x_vec.size())),
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
 						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
