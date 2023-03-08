@@ -474,6 +474,8 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
+	std::cout << "Trisystem analysis begin" << std::endl;
+
 	CHECK_CUSOLVER(
 		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
 
@@ -482,6 +484,8 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
 
 	std::vector<char> buffer(workspace);
+
+	std::cout << "Trisystem analysis begin" << std::endl;
 
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
@@ -503,6 +507,8 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
 					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
+
+		std::cout << "Trisystem solve begin" << std::endl;
 
 		CHECK_CUSOLVER(
 			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
