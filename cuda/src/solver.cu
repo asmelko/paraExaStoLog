@@ -349,12 +349,12 @@ void solver::transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_
 	CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices,
 												 out_data.data().get(), out_indptr.data().get(),
 												 out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_NUMERIC,
-												 CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, &buffersize));
+												 CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
 
 	thrust::device_vector<char> buffer(buffersize);
 	CHECK_CUSPARSE(cusparseCsr2cscEx2(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices, out_data.data().get(),
 									  out_indptr.data().get(), out_indices.data().get(), CUDA_R_32F,
-									  CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT,
+									  CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1,
 									  buffer.data().get()));
 }
 
