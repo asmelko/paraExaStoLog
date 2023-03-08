@@ -2,13 +2,11 @@
 // Authors: Xuhao Chen <cxh@illinois.edu>
 #define SCC_VARIANT "two-phase"
 #include "wcc.h"
-#include "cuda_launch_config.hpp"
 #include <thrust/reduce.h>
 #include "timer.h"
 #define debug 1
 
 void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, int *h_scc_root) {
-	print_device_info(0);
 	Timer t;
 	int iter = 1;
 	int *d_in_row_offsets, *d_in_column_indices, *d_out_row_offsets, *d_out_column_indices;

@@ -54,8 +54,6 @@ inline int ConvertSMVer2Cores(int major, int minor) {
 		{ 0x30, 192}, // Fermi Generation (SM 3.0) GK10x class
 		{ 0x35, 192}, // Kepler Generation (SM 3.5) GK110 class
 		{ 0x37, 192}, // Kepler Generation (SM 3.7) GK210 class
-		{ 0x70, 64}, 
-		{ 0x75, 64}, 
 		{   -1, -1 }
 	};
 
