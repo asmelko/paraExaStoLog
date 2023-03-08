@@ -605,12 +605,16 @@ void solver::solve_nonterminal_part()
 	d_idxvec A_indptr, A_indices;
 	thrust::device_vector<float> A_data;
 
+	std::cout << "matmul begin" << std::endl;
+
 	matmul(U_indptr_csr.data().get(), U_cols.data().get(), U_data.data().get(), sccs_offsets_.size() - 1,
 		   terminal_vertices_n, U_cols.size(), nb_indptr_csr.data().get() + nonterminal_vertices_n,
 		   nb_cols.data().get() + n_nnz, nb_data_csr.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n,
 		   b_nnz, A_indptr, A_indices, A_data);
 
 	nb_indptr_csr[nonterminal_vertices_n] = n_nnz;
+
+	std::cout << "NB switch begin" << std::endl;
 
 	csr_csc_switch(nb_indptr_csr.data().get(), nb_cols.data().get(), nb_data_csr.data().get(), nonterminal_vertices_n,
 				   nonterminal_vertices_n, n_nnz, nb_indptr_csc, nb_rows, nb_data_csc);
@@ -621,6 +625,8 @@ void solver::solve_nonterminal_part()
 
 	d_idxvec X_indptr, X_indices;
 	thrust::device_vector<float> X_data;
+
+	std::cout << "Trisystem begin" << std::endl;
 
 	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
 					 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
@@ -648,6 +654,8 @@ void solver::solve_nonterminal_part()
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 	}
 
+	std::cout << "hstack begin" << std::endl;
+
 	// hstack(U,X)
 	{
 		int blocksize = 512;
@@ -666,6 +674,7 @@ void solver::solve_nonterminal_part()
 
 void solver::compute_final_states()
 {
+	std::cout << "Rx begin" << std::endl;
 	thrust::device_vector<float> y(terminals_.size());
 	{
 		float alpha = 1.0f;
@@ -698,6 +707,8 @@ void solver::compute_final_states()
 		CHECK_CUSPARSE(cusparseDestroyDnVec(vecX));
 		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
 	}
+
+	std::cout << "Ly begin" << std::endl;
 
 	final_state.resize(labels_.size());
 	{
