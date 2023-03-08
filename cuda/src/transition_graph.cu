@@ -44,9 +44,11 @@ d_idxvec transition_graph::compute_sccs()
 			out_offset.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
 			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
 
+		float dummy;
+
 		thrust::device_vector<char> buffer(buffersize);
-		CHECK_CUSPARSE(cusparseCsr2cscEx2(context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(),
-										  in_indices.data().get(), nullptr, out_offset.data().get(),
+		CHECK_CUSPARSE(cusparseCsr2cscEx2(context_.cusparse_handle, n, n, nnz, &dummy, in_offsets.data().get(),
+										  in_indices.data().get(), &dummy, out_offset.data().get(),
 										  out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
 										  CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
