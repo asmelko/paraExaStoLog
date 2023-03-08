@@ -45,6 +45,11 @@ public:
 
 	thrust::device_vector<float> final_state;
 
+	static void transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
+										const float* in_data, index_t in_n, index_t out_n, index_t nnz,
+										d_idxvec& out_indptr, d_idxvec& out_indices,
+										thrust::device_vector<float>& out_data);
+
 	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
 						   d_idxvec& submatrix_rows, thrust::device_vector<float>& submatrix_data,
 						   bool mapping_prefilled = false);

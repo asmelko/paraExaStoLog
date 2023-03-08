@@ -2,12 +2,18 @@
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 
-#include "cugraph/scc_matrix.cuh"
+#include "sga/scc.h"
 #include "transition_graph.h"
 #include "utils.h"
 
-transition_graph::transition_graph(const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr)
-	: indptr_(indptr), rows_(rows), cols_(cols), vertices_count_(indptr_.size() - 1), edges_count_(rows.size())
+transition_graph::transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols,
+								   const d_idxvec& indptr)
+	: context_(context),
+	  indptr_(indptr),
+	  rows_(rows),
+	  cols_(cols),
+	  vertices_count_(indptr_.size() - 1),
+	  edges_count_(rows.size())
 {}
 
 struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, bool>
@@ -18,15 +24,52 @@ struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t,
 	}
 };
 
+d_idxvec transition_graph::compute_sccs()
+{
+	int n = indptr_.size() - 1;
+	int nnz = rows_.size();
+
+	auto& in_offsets = indptr_;
+	auto& in_indices = rows_;
+
+	d_idxvec out_offset;
+	d_idxvec out_indices;
+	{
+		out_offset.resize(in_offsets.size());
+		out_indices.resize(in_indices.size());
+
+		size_t buffersize;
+		CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(
+			context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(), in_indices.data().get(), nullptr,
+			out_offset.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
+			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, &buffersize));
+
+		thrust::device_vector<char> buffer(buffersize);
+		CHECK_CUSPARSE(cusparseCsr2cscEx2(context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(),
+										  in_indices.data().get(), nullptr, out_offset.data().get(),
+										  out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
+										  CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, buffer.data().get()));
+	}
+
+	thrust::host_vector<index_t> hin_offsets = in_offsets;
+	thrust::host_vector<index_t> hin_indices = in_indices;
+	thrust::host_vector<index_t> hout_offsets = out_offset;
+	thrust::host_vector<index_t> hout_indices = out_indices;
+	thrust::host_vector<index_t> h_labels(n);
+
+	SCCSolver(n, nnz, hin_offsets.data(), hin_indices.data(), hout_offsets.data(), hout_indices.data(),
+			  h_labels.data());
+
+	return h_labels;
+}
+
 void transition_graph::find_terminals()
 {
-	labels = d_idxvec(vertices_count_);
 
 	std::cout << "vertices count " << vertices_count_ << std::endl;
 	std::cout << "edges count " << edges_count_ << std::endl;
 
-	SCC_Data<char, int> sccd(vertices_count_, indptr_.data().get(), rows_.data().get());
-	sccd.run_scc(labels.data().get());
+	labels = compute_sccs();
 
 	std::cout << "labeled " << std::endl;
 

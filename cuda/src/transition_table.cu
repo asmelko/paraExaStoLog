@@ -84,14 +84,13 @@ void transition_table::construct_table()
 	CHECK_CUSPARSE(cusparseXcscsort_bufferSizeExt(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
 												  rows.data().get(), cols.data().get(), &buffersize));
 
-	void* d_buffer;
-	cudaMalloc(&d_buffer, buffersize);
+	thrust::device_vector<char> buffer(buffersize);
 
 	d_idxvec P(cols.size());
 	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, P.size(), P.data().get()));
 
 	CHECK_CUSPARSE(cusparseXcoosortByColumn(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
-											rows.data().get(), cols.data().get(), P.data().get(), d_buffer));
+											rows.data().get(), cols.data().get(), P.data().get(), buffer.data().get()));
 
 	indptr = d_idxvec(matrix_size + 1);
 

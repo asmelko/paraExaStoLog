@@ -1,3 +1,5 @@
+#pragma once
+
 #include <cusolverSp.h>
 #include <cusparse.h>
 

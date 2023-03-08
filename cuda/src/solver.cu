@@ -335,25 +335,35 @@ void solver::solve_terminal_part()
 	print("terminal data    ", term_data);
 }
 
-void solver::csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
-							index_t out_n, index_t nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
-							thrust::device_vector<float>& out_data)
+
+void solver::transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
+									 const float* in_data, index_t in_n, index_t out_n, index_t nnz,
+									 d_idxvec& out_indptr, d_idxvec& out_indices,
+									 thrust::device_vector<float>& out_data)
 {
 	out_indptr.resize(out_n + 1);
 	out_indices.resize(nnz);
 	out_data.resize(nnz);
 
 	size_t buffersize;
-	CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(context_.cusparse_handle, in_n, out_n, nnz, in_data, in_indptr,
-												 in_indices, out_data.data().get(), out_indptr.data().get(),
+	CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices,
+												 out_data.data().get(), out_indptr.data().get(),
 												 out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_NUMERIC,
 												 CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, &buffersize));
 
 	thrust::device_vector<char> buffer(buffersize);
-	CHECK_CUSPARSE(cusparseCsr2cscEx2(context_.cusparse_handle, in_n, out_n, nnz, in_data, in_indptr, in_indices,
-									  out_data.data().get(), out_indptr.data().get(), out_indices.data().get(),
-									  CUDA_R_32F, CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO,
-									  CUSPARSE_CSR2CSC_ALG_DEFAULT, buffer.data().get()));
+	CHECK_CUSPARSE(cusparseCsr2cscEx2(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices, out_data.data().get(),
+									  out_indptr.data().get(), out_indices.data().get(), CUDA_R_32F,
+									  CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT,
+									  buffer.data().get()));
+}
+
+void solver::csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
+							index_t out_n, index_t nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
+							thrust::device_vector<float>& out_data)
+{
+	transpose_sparse_matrix(context_.cusparse_handle, in_indptr, in_indices, in_data, in_n, out_n, nnz, out_indptr,
+							out_indices, out_data);
 }
 
 void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, index_t lhs_rows, index_t lhs_cols,

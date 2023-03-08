@@ -66,7 +66,7 @@ TEST(trans_graph, toy)
 
 	table.construct_table();
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
@@ -101,7 +101,7 @@ TEST(solver, toy)
 
 	table.construct_table();
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
@@ -163,7 +163,7 @@ TEST(solver, toy2)
 
 	table.construct_table();
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
@@ -226,7 +226,7 @@ TEST(solver, toy3)
 
 	table.construct_table();
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
@@ -290,7 +290,7 @@ TEST(solver, kras)
 
 	std::cout << "after table" << std::endl;
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
@@ -336,7 +336,7 @@ TEST(solver, cohen)
 
 	std::cout << "after table" << std::endl;
 
-	transition_graph g(table.rows, table.cols, table.indptr);
+	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
 
