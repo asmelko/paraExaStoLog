@@ -464,47 +464,11 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 	thrust::host_vector<index_t> h_rows = rows;
 	thrust::host_vector<float> h_data = data;
 
-	csrluInfoHost_t info;
-	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
-
-
-
-	cusparseMatDescr_t descr, descr_L, descr_U;
+	cusparseMatDescr_t descr;
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
 	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
-
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
-
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
-
-
-	std::cout << "Trisystem analysis begin" << std::endl;
-
-	CHECK_CUSOLVER(
-		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
-
-	size_t internal_data, workspace;
-	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(context_.cusolver_handle, n, nnz, descr, h_data.data(),
-												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
-
-	std::vector<char> buffer(workspace);
-
-	std::cout << "Trisystem factor begin" << std::endl;
-
-
-	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
-											  h_rows.data(), info, 0.1f, buffer.data()));
-
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 
@@ -525,7 +489,7 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 		int s;
 		CHECK_CUSOLVER(cusolverSpScsrlsvqr(context_.cusolver_handle, n, nnz, descr, data.data().get(),
-										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 2,
+										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 1,
 										   x_vec.data().get(), &s));
 
 		if (s != -1)
@@ -548,9 +512,6 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 	x_indptr = hx_indptr;
 
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
-	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
 }
 
 void solver::solve_nonterminal_part()
