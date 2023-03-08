@@ -111,6 +111,9 @@ void transition_graph::find_terminals()
 	meta_src_transitions.resize(thrust::get<0>(meta_src_transitions_end.get_iterator_tuple())
 								- meta_src_transitions.begin());
 
+	print("scc_ids              ", scc_ids);
+	print("meta_src_transitions ", meta_src_transitions);
+
 	std::cout << "meta_src_transitions " << meta_src_transitions.size() << std::endl;
 
 	terminals = d_idxvec(scc_ids.size());
