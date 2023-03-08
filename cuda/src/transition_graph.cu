@@ -42,13 +42,13 @@ d_idxvec transition_graph::compute_sccs()
 		CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(
 			context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(), in_indices.data().get(), nullptr,
 			out_offset.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
-			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, &buffersize));
+			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
 
 		thrust::device_vector<char> buffer(buffersize);
 		CHECK_CUSPARSE(cusparseCsr2cscEx2(context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(),
 										  in_indices.data().get(), nullptr, out_offset.data().get(),
 										  out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
-										  CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG_DEFAULT, buffer.data().get()));
+										  CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
 
 	thrust::host_vector<index_t> hin_offsets = in_offsets;
@@ -65,7 +65,6 @@ d_idxvec transition_graph::compute_sccs()
 
 void transition_graph::find_terminals()
 {
-
 	std::cout << "vertices count " << vertices_count_ << std::endl;
 	std::cout << "edges count " << edges_count_ << std::endl;
 
