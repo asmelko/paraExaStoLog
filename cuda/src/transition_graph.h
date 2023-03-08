@@ -15,7 +15,7 @@ class transition_graph
 	d_idxvec compute_sccs();
 
 public:
-	d_idxvec terminals, labels;
+	d_idxvec terminals, nonterminals, labels;
 	size_t sccs_count;
 
 	transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr);

@@ -27,6 +27,7 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  initial_state_(std::move(s.state)),
 	  labels_(std::move(g.labels)),
 	  terminals_(std::move(g.terminals)),
+	  nonterminals_(std::move(g.nonterminals)),
 	  rows_(t.rows),
 	  cols_(t.cols),
 	  indptr_(t.indptr),
@@ -182,6 +183,15 @@ void solver::reorganize_terminal_sccs()
 									 });
 
 		sccs_offsets_.push_back(thrust::get<0>(partition_point.get_iterator_tuple()) - sccs_.begin());
+	}
+
+	for (auto it = nonterminals_.begin(); it != nonterminals_.end(); it++)
+	{
+		partition_point =
+			thrust::stable_partition(partition_point, thrust::make_zip_iterator(sccs_.end(), labels_.end()),
+									 [terminal_idx = *it] __device__(thrust::tuple<index_t, index_t> x) {
+										 return thrust::get<1>(x) == terminal_idx;
+									 });
 	}
 }
 
@@ -485,7 +495,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 
 	std::vector<char> buffer(workspace);
 
-	std::cout << "Trisystem analysis begin" << std::endl;
+	std::cout << "Trisystem factor begin" << std::endl;
 
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));

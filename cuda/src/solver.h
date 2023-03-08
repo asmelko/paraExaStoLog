@@ -11,7 +11,7 @@ class solver
 	cu_context& context_;
 	thrust::device_vector<float> initial_state_;
 
-	d_idxvec labels_, terminals_;
+	d_idxvec labels_, terminals_, nonterminals_;
 	size_t sccs_count_;
 
 	const d_idxvec &rows_, &cols_; // COO
