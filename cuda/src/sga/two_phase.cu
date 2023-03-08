@@ -56,7 +56,7 @@ void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int 
 		printf("%d vertices trimmed in the first trimming\n", num_trimmed);
 	}
 	//
-	int source;
+	int source = -1;
 	for (int i = 0; i < m; i++) { 
 		if(!is_removed(h_status[i])) {
 			printf("Vertex %d not eliminated, set as the first pivot\n", i);
@@ -64,6 +64,9 @@ void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int 
 			break;
 		}
 	}
+
+	if (source == -1)
+		goto finish;
 	CUDA_SAFE_CALL(cudaMemset(&d_status[source], 19, 1));
 	// phase-1
 	printf("Start phase-1...\t");
@@ -118,6 +121,8 @@ void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int 
 		printf("Done\n");
 	}
 	CUDA_SAFE_CALL(cudaDeviceSynchronize());
+
+finish:
 	t.Stop();
 
 	CUDA_SAFE_CALL(cudaMemcpy(h_scc_root, d_scc_root, sizeof(unsigned) * m, cudaMemcpyDeviceToHost));
