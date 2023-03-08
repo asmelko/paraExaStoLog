@@ -111,8 +111,7 @@ void transition_graph::find_terminals()
 	meta_src_transitions.resize(thrust::get<0>(meta_src_transitions_end.get_iterator_tuple())
 								- meta_src_transitions.begin());
 
-	print("scc_ids              ", scc_ids);
-	print("meta_src_transitions ", meta_src_transitions);
+	thrust::sort(meta_src_transitions.begin(), meta_src_transitions.end());
 
 	std::cout << "meta_src_transitions " << meta_src_transitions.size() << std::endl;
 
