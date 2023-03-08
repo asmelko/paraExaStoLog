@@ -489,7 +489,7 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 		int s;
 		CHECK_CUSOLVER(cusolverSpScsrlsvqr(context_.cusolver_handle, n, nnz, descr, data.data().get(),
-										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 1,
+										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 0,
 										   x_vec.data().get(), &s));
 
 		if (s != -1)
