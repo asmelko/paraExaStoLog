@@ -7,6 +7,11 @@
 #include <thrust/execution_policy.h>
 #include <thrust/partition.h>
 
+#include "glu/numeric.h"
+#include "glu/Timer.h"
+#include "glu/preprocess.h"
+#include "glu/nicslu/nicslu.h"
+
 constexpr float zero_threshold = 1e-10f;
 
 __device__ __host__ bool is_zero(float x) { return (x > 0 ? x : -x) <= zero_threshold; }
@@ -460,17 +465,67 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 							  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 							  thrust::device_vector<float>& x_data)
 {
-	thrust::host_vector<index_t> h_indptr = indptr;
-	thrust::host_vector<index_t> h_rows = rows;
-	thrust::host_vector<float> h_data = data;
+	thrust::host_vector<unsigned int> h_indptr = indptr;
+	thrust::host_vector<unsigned int> h_rows = rows;
+	thrust::host_vector<double> h_data = data;
 
-	cusparseMatDescr_t descr;
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
+	Timer t;
+	double utime;
+	SNicsLU* nicslu;
+
+	bool PERTURB = false;
+
+	nicslu = (SNicsLU*)malloc(sizeof(SNicsLU));
+
+	int err = preprocess(nicslu, n, nnz, h_data.data(), h_rows.data(), h_indptr.data());
+	if (err)
+	{
+		// cout << "Reading matrix error" << endl;
+		exit(1);
+	}
+
+
+	cout << "Matrix Row: " << n << endl;
+	cout << "Original nonzero: " << nicslu->nnz << endl;
+
+	t.start();
+
+	Symbolic_Matrix A_sym(n, cout, cerr);
+	A_sym.fill_in(h_rows.data(), h_indptr.data());
+	t.elapsedUserTime(utime);
+	cout << "Symbolic time: " << utime << " ms" << endl;
+
+	t.start();
+	A_sym.csr();
+	t.elapsedUserTime(utime);
+	cout << "CSR time: " << utime << " ms" << endl;
+
+	t.start();
+	A_sym.predictLU(h_rows.data(), h_indptr.data(), h_data.data());
+	t.elapsedUserTime(utime);
+	cout << "PredictLU time: " << utime << " ms" << endl;
+
+	t.start();
+	A_sym.leveling();
+	t.elapsedUserTime(utime);
+	cout << "Leveling time: " << utime << " ms" << endl;
+
+#if GLU_DEBUG
+	A_sym.ABFTCalculateCCA();
+//    A_sym.PrintLevel();
+#endif
+
+	LUonDevice(A_sym, cout, cerr, PERTURB);
+
+#if GLU_DEBUG
+	A_sym.ABFTCheckResult();
+#endif
+
+	
+
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
+	thrust::host_vector<index_t> hb_indices = b_indices;
 
 	thrust::device_vector<float> x_vec(cols);
 
@@ -479,21 +534,16 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		thrust::device_vector<float> b_vec(n, 0.f);
+		std::vector<float> b_vec(n, 0.f);
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
-					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
+					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
 
 		std::cout << "Trisystem solve begin" << std::endl;
 
-		int s;
-		CHECK_CUSOLVER(cusolverSpScsrlsvqr(context_.cusolver_handle, n, nnz, descr, data.data().get(),
-										   indptr.data().get(), rows.data().get(), b_vec.data().get(), 0.1f, 3,
-										   x_vec.data().get(), &s));
-
-		if (s != -1)
-			std::cout << "s" << s << std::endl;
+		// solve Ax=b
+		x_vec = A_sym.solve(nicslu, b_vec);
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
@@ -511,7 +561,6 @@ void solver::solve_tri_system(d_idxvec& indptr, d_idxvec& rows, const thrust::de
 
 	x_indptr = hx_indptr;
 
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
 }
 
 void solver::solve_nonterminal_part()
