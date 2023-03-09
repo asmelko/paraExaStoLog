@@ -176,9 +176,13 @@ void transition_graph::find_terminals()
 	d_idxvec scc_ids_tmp = labels;
 	thrust::sort(scc_ids_tmp.begin(), scc_ids_tmp.end());
 
+
 	d_idxvec scc_ids(vertices_count_), scc_sizes(vertices_count_ + 1);
 	auto scc_end = thrust::reduce_by_key(scc_ids.begin(), scc_ids.end(), thrust::make_constant_iterator<index_t>(1),
 										 scc_ids.begin(), scc_sizes.begin() + 1);
+
+	print("labels  ", labels);
+	print("scc_ids ", scc_ids);
 
 	scc_sizes.resize(scc_end.second - scc_sizes.begin());
 	scc_ids.resize(scc_sizes.size() - 1);
