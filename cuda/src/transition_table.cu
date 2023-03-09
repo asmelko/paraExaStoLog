@@ -72,30 +72,35 @@ struct flip_ftor : public thrust::unary_function<index_t, index_t>
 	__host__ __device__ index_t operator()(index_t x) const { return x ^ mask; }
 };
 
-void transition_table::construct_table()
+void transition_table::coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& rows, d_idxvec& cols, d_idxvec& indptr)
 {
-	auto p = compute_rows_and_cols();
-	cols = std::move(p.first);
-	rows = std::move(p.second);
-
-	int matrix_size = (int)(1ULL << model_.nodes.size());
-
 	size_t buffersize;
-	CHECK_CUSPARSE(cusparseXcscsort_bufferSizeExt(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
-												  rows.data().get(), cols.data().get(), &buffersize));
+	CHECK_CUSPARSE(cusparseXcscsort_bufferSizeExt(handle, n, n, (int)cols.size(), rows.data().get(), cols.data().get(),
+												  &buffersize));
 
 	thrust::device_vector<char> buffer(buffersize);
 
 	d_idxvec P(cols.size());
-	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, P.size(), P.data().get()));
+	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(handle, P.size(), P.data().get()));
 
-	CHECK_CUSPARSE(cusparseXcoosortByColumn(context_.cusparse_handle, matrix_size, matrix_size, (int)cols.size(),
-											rows.data().get(), cols.data().get(), P.data().get(), buffer.data().get()));
+	CHECK_CUSPARSE(cusparseXcoosortByColumn(handle, n, n, (int)cols.size(), rows.data().get(), cols.data().get(),
+											P.data().get(), buffer.data().get()));
 
-	indptr = d_idxvec(matrix_size + 1);
+	indptr.resize(n + 1);
 
-	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, cols.data().get(), (int)rows.size(), matrix_size,
-									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseXcoo2csr(handle, cols.data().get(), (int)rows.size(), n, indptr.data().get(),
+									CUSPARSE_INDEX_BASE_ZERO));
+}
+
+void transition_table::construct_table()
+{
+	auto p = compute_rows_and_cols();
+
+	cols = std::move(p.first);
+	rows = std::move(p.second);
+
+	int matrix_size = (int)(1ULL << model_.nodes.size());
+	coo2csc(context_.cusparse_handle, matrix_size, rows, cols, indptr);
 }
 
 std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()

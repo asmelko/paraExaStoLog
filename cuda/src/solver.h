@@ -11,20 +11,17 @@ class solver
 	cu_context& context_;
 	thrust::device_vector<float> initial_state_;
 
-	d_idxvec labels_, terminals_;
-	size_t sccs_count_;
-
 	const d_idxvec &rows_, &cols_; // COO
 	const d_idxvec& indptr_;	   // CSC
 
+	d_idxvec submatrix_vertex_mapping_;
+
+	const d_idxvec ordered_vertices_;
+	thrust::host_vector<index_t> terminals_offsets_;
 
 	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 					  int nnz);
 
-	d_idxvec sccs_;
-	thrust::host_vector<index_t> sccs_offsets_;
-
-	d_idxvec submatrix_vertex_mapping_;
 
 	void matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, index_t lhs_rows, index_t lhs_cols,
 				index_t lhs_nnz, index_t* rhs_indptr, index_t* rhs_indices, float* rhs_data, index_t rhs_rows,

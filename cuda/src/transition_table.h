@@ -20,4 +20,6 @@ public:
 	static d_idxvec construct_transition_vector(const std::vector<index_t>& free_nodes, size_t fixed_val);
 
 	void construct_table();
+
+	static void coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& rows, d_idxvec& cols, d_idxvec& indptr);
 };
