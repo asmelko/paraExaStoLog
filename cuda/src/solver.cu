@@ -687,8 +687,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	int structural_zero;
 	int numerical_zero;
 	const float alpha = 1.;
-	const cusparseSolvePolicy_t policy_M = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
-	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
+	const cusparseSolvePolicy_t policy_M = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
+	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
 	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
 	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_NON_TRANSPOSE;
 	const cusparseOperation_t trans_U = CUSPARSE_OPERATION_NON_TRANSPOSE;
