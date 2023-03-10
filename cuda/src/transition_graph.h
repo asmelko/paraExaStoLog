@@ -20,7 +20,8 @@ class transition_graph
 				  d_idxvec& ordering);
 
 public:
-	thrust::host_vector<index_t> terminals_offsets;
+	index_t terminals_count;
+	d_idxvec sccs_offsets;
 	d_idxvec reordered_vertices;
 
 	transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr);

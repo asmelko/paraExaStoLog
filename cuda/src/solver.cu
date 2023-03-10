@@ -29,9 +29,11 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  cols_(t.cols),
 	  indptr_(t.indptr),
 	  ordered_vertices_(std::move(g.reordered_vertices)),
-	  terminals_offsets_(std::move(g.terminals_offsets)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
-{}
+{
+	terminals_offsets_ =
+		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+}
 
 __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_t* __restrict__ dst_rows,
 								  float* __restrict__ dst_data, const index_t* __restrict__ src_rows,
@@ -468,7 +470,7 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
 
-	
+
 
 	int nnz_l, nnz_u;
 	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(context_.cusolver_handle, &nnz_l, &nnz_u, info));
@@ -480,8 +482,8 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 											   L_indptr.data(), L_cols.data(), descr_U, U_data.data(), U_indptr.data(),
 											   U_cols.data(), info, buffer.data()));
 
-	//print("P", (d_idxvec)P);
-	//print("Q", (d_idxvec)Q);
+	// print("P", (d_idxvec)P);
+	// print("Q", (d_idxvec)Q);
 
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
