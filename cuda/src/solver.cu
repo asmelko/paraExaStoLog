@@ -827,7 +827,6 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	x_indptr = hx_indptr;
 
 	// step 6: free resources
-	cudaFree(pBuffer);
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_M));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
