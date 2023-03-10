@@ -674,7 +674,7 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	cusparseMatDescr_t descr_M = 0;
 	cusparseMatDescr_t descr_L = 0;
 	cusparseMatDescr_t descr_U = 0;
-	csrilu02Info_t info_M = 0;
+	bsrilu02Info_t info_M = 0;
 	bsrsv2Info_t info_L = 0;
 	bsrsv2Info_t info_U = 0;
 	int pBufferSize_M;
@@ -719,13 +719,14 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 	// step 2: create a empty info structure
 	// we need one info for csrilu02 and two info's for csrsv2
-	CHECK_CUSPARSE(cusparseCreateCsrilu02Info(&info_M));
+	CHECK_CUSPARSE(cusparseCreateBsrilu02Info(&info_M));
 	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_L));
 	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
 	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	CHECK_CUSPARSE(cusparseScsrilu02_bufferSize(context_.cusparse_handle, n, nnz, descr_M, data.data().get(),
-												indptr.data().get(), rows.data().get(), info_M, &pBufferSize_M));
+	CHECK_CUSPARSE(cusparseSbsrilu02_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, n, nnz, descr_M,
+												data.data().get(), indptr.data().get(), rows.data().get(), 1, info_M,
+												&pBufferSize_M));
 	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz,
 											  descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
 											  info_L, &pBufferSize_L));
@@ -746,10 +747,11 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// The lower(upper) triangular part of M has the same sparsity pattern as L(U),
 	// we can do analysis of csrilu0 and csrsv2 simultaneously.
 
-	CHECK_CUSPARSE(cusparseScsrilu02_analysis(context_.cusparse_handle, n, nnz, descr_M, data.data().get(),
-											  indptr.data().get(), rows.data().get(), info_M, policy_M, pBufferM));
+	CHECK_CUSPARSE(cusparseSbsrilu02_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, n, nnz, descr_M,
+											  data.data().get(), indptr.data().get(), rows.data().get(), 1, info_M,
+											  policy_M, pBufferM));
 
-	auto status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &structural_zero);
+	auto status = cusparseXbsrilu02_zeroPivot(context_.cusparse_handle, info_M, &structural_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
 	{
 		printf("A(%d,%d) is missing\n", structural_zero, structural_zero);
@@ -764,10 +766,11 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 											policy_U, pBufferU));
 
 	// step 5: M = L * U
-	CHECK_CUSPARSE(cusparseScsrilu02(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
-									 rows.data().get(), info_M, policy_M, pBufferM));
+	CHECK_CUSPARSE(cusparseSbsrilu02(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, n, nnz, descr_M,
+									 data.data().get(), indptr.data().get(), rows.data().get(), 1, info_M, policy_M,
+									 pBufferM));
 
-	status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &numerical_zero);
+	status = cusparseXbsrilu02_zeroPivot(context_.cusparse_handle, info_M, &numerical_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
 	{
 		printf("U(%d,%d) is zero\n", numerical_zero, numerical_zero);
@@ -830,7 +833,7 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_M));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
-	CHECK_CUSPARSE(cusparseDestroyCsrilu02Info(info_M));
+	CHECK_CUSPARSE(cusparseDestroyBsrilu02Info(info_M));
 	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_L));
 	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_U));
 }
