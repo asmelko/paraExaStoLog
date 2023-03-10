@@ -605,9 +605,6 @@ void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, c
 	std::cout << "SCC nnz " << scc_nnz << std::endl;
 	std::cout << "TRA nnz " << transitions_nnz << std::endl;
 
-	d_idxvec L_indptr, L_indices, U_indptr, U_indices;
-	d_datvec L_data, U_data;
-
 	LU_factorization(scc_indptr_csr.data().get(), scc_indices_csr.data().get(), scc_data_csr.data().get(), scc_size,
 					 scc_nnz, L_indptr, L_indices, L_data, U_indptr, U_indices, U_data);
 
@@ -666,10 +663,6 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
-	index_t nonterm_idx;
-
-
-
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
 	thrust::host_vector<float> h_data = data;
