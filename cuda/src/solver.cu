@@ -4,7 +4,9 @@
 
 #include <thrust/adjacent_difference.h>
 #include <thrust/execution_policy.h>
+#include <thrust/iterator/constant_iterator.h>
 #include <thrust/partition.h>
+#include <thrust/tabulate.h>
 
 constexpr float zero_threshold = 1e-10f;
 
@@ -33,6 +35,9 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 {
 	terminals_offsets_ =
 		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+
+	nonterminals_offsets_ =
+		thrust::host_vector<index_t>(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
 }
 
 __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_t* __restrict__ dst_rows,
@@ -86,6 +91,71 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	{
 		out_indices[out_begin + i] = my_indices[in_begin + i];
 		out_data[out_begin + i] = my_data[in_begin + i];
+	}
+}
+
+
+__global__ void partial_factorize(index_t n, index_t scc_size, const index_t* __restrict__ nonempty_rows,
+								  const index_t* __restrict__ U_indptr, const index_t* __restrict__ U_indices,
+								  const real_t* __restrict__ U_data, const index_t* __restrict__ indptr,
+								  const index_t* __restrict__ indices, real_t* __restrict__ data,
+								  real_t* __restrict__ out, real_t* __restrict__ scratch_data)
+{
+	auto idx = blockDim.x * blockIdx.x + threadIdx.x;
+
+	scratch_data = scratch_data + idx * scc_size;
+
+	for (int i = 0; i < scc_size; i++)
+		scratch_data[i] = 0.f;
+
+	if (idx >= n)
+		return;
+
+	auto row_id = nonempty_rows[idx];
+	out = out + row_id * scc_size;
+
+	auto row_begin = indptr[row_id];
+	auto row_size = indptr[row_id + 1] - row_begin;
+
+	auto min_col_idx = scc_size;
+	// fill scratchpad with sorted data
+	for (int i = row_begin; i < row_begin + row_size; i++)
+	{
+		auto col_idx = indices[i];
+
+		min_col_idx = (min_col_idx > col_idx) ? col_idx : min_col_idx;
+
+		scratch_data[col_idx] = data[i];
+	}
+
+	for (int col_idx = min_col_idx; col_idx < scc_size; col_idx++)
+	{
+		float data = scratch_data[col_idx];
+		if (data == 0.f)
+			continue;
+
+		float pivot;
+
+		// find pivot
+		auto U_begin = U_indptr[col_idx];
+		auto U_end = U_indptr[col_idx + 1];
+		for (int U_i = U_begin; U_i < U_end; U_i++)
+		{
+			if (U_indices[U_i] == col_idx)
+			{
+				pivot = U_data[U_i];
+				continue;
+			}
+		}
+
+		float factor = -data / pivot;
+
+		out[col_idx] = factor;
+
+		for (int U_i = U_begin; U_i < U_end; U_i++)
+		{
+			scratch_data[U_indices[U_i]] += factor * U_data[U_i];
+		}
 	}
 }
 
@@ -150,6 +220,7 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 						 {
 							 if (U_cols[col_idx] == i)
 								 diag[i] = U_data[col_idx];
+							 diag[i] = U_data[col_idx];
 						 }
 					 });
 
@@ -162,6 +233,72 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 	return determinant;
 }
+
+void solver::LU_factorization(const index_t* indptr, const index_t* indices, const float* data, int n, int nnz,
+							  d_idxvec& L_indptr, d_idxvec& L_indices, d_datvec& L_data, d_idxvec& U_indptr,
+							  d_idxvec& U_indices, d_datvec& U_data)
+{
+	thrust::host_vector<index_t> h_indptr(indptr, indptr + n + 1);
+	thrust::host_vector<index_t> h_rows(indices, indices + nnz);
+	thrust::host_vector<float> h_data(data, data + nnz);
+
+	csrluInfoHost_t info;
+	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
+
+	cusparseMatDescr_t descr, descr_L, descr_U;
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
+
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
+
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
+
+	CHECK_CUSOLVER(
+		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
+
+	size_t internal_data, workspace;
+	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(context_.cusolver_handle, n, nnz, descr, h_data.data(),
+												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
+
+	std::vector<char> buffer(workspace);
+
+	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
+											  h_rows.data(), info, 0.1f, buffer.data()));
+
+	int nnz_l, nnz_u;
+	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(context_.cusolver_handle, &nnz_l, &nnz_u, info));
+
+	std::vector<index_t> hP(n), hQ(n), hL_indptr(n + 1), hU_indptr(n + 1), hL_cols(nnz_l), hU_cols(nnz_u);
+	std::vector<float> hL_data(nnz_l), hU_data(nnz_u);
+
+	CHECK_CUSOLVER(cusolverSpScsrluExtractHost(context_.cusolver_handle, hP.data(), hQ.data(), descr_L, hL_data.data(),
+											   hL_indptr.data(), hL_cols.data(), descr_U, hU_data.data(),
+											   hU_indptr.data(), hU_cols.data(), info, buffer.data()));
+
+	L_indptr = hL_indptr;
+	L_indices = hL_cols;
+	L_data = hL_data;
+
+	U_indptr = hU_indptr;
+	U_indices = hU_cols;
+	U_data = hU_data;
+
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
+	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
+}
+
 
 index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
 							   d_idxvec& submatrix_rows, thrust::device_vector<float>& submatrix_data,
@@ -424,11 +561,115 @@ void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, 
 	CHECK_CUSPARSE(cusparseDestroySpMat(out_descr));
 }
 
+// input: block lower diagonal CSC matrix
+void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, const d_idxvec& indices,
+								  const thrust::device_vector<float>& data, d_idxvec& L_indptr, d_idxvec& L_indices,
+								  d_datvec& L_data, d_idxvec& U_indptr, d_idxvec& U_indices, d_datvec& U_data)
+{
+	index_t scc_size = nonterminals_offsets_[nonterm_idx + 1] - nonterminals_offsets_[nonterm_idx];
+	index_t mat_offset = nonterminals_offsets_[nonterm_idx] - nonterminals_offsets_.front();
+	index_t included_terminals = indptr.size() - 1 - mat_offset;
+
+	index_t scc_indices_begin = indptr[mat_offset];
+	index_t scc_indices_end = indptr[mat_offset + scc_size + 1];
+
+	d_idxvec scc_indptr_csc(scc_size + 1);
+	d_idxvec scc_indices_csc(scc_indices_end - scc_indices_begin);
+	thrust::device_vector<float> scc_data_csc(scc_indices_csc.size());
+
+	thrust::transform(indptr.begin() + mat_offset, indptr.begin() + mat_offset + scc_size + 1, scc_indptr_csc.begin(),
+					  [=] __device__(index_t x) { return x - scc_indices_begin; });
+	thrust::copy(indices.begin() + scc_indices_begin, indices.begin() + scc_indices_end, scc_indices_csc.begin());
+	thrust::copy(data.begin() + scc_indices_begin, data.begin() + scc_indices_end, scc_data_csc.begin());
+
+	// make indices start from 0
+	{
+		thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
+					 thrust::make_counting_iterator<intptr_t>(included_terminals),
+					 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(),
+													   ordered_vertices_.begin() + nonterminals_offsets_[nonterm_idx]));
+
+		thrust::transform(scc_indices_csc.begin(), scc_indices_csc.end(), scc_indices_csc.begin(),
+						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
+	}
+
+	d_idxvec scc_indptr_csr, scc_indices_csr;
+	thrust::device_vector<float> scc_data_csr;
+
+	csr_csc_switch(scc_indptr_csc.data().get(), scc_indices_csc.data().get(), scc_data_csc.data().get(), scc_size,
+				   included_terminals, scc_indices_csc.size(), scc_indptr_csr, scc_indices_csr, scc_data_csr);
+
+	index_t scc_nnz = scc_indptr_csr[scc_size];
+	index_t transitions_nnz = scc_data_csr.size() - scc_nnz;
+
+	std::cout << "SCC nnz " << scc_nnz << std::endl;
+	std::cout << "TRA nnz " << transitions_nnz << std::endl;
+
+	d_idxvec L_indptr, L_indices, U_indptr, U_indices;
+	d_datvec L_data, U_data;
+
+	LU_factorization(scc_indptr_csr.data().get(), scc_indices_csr.data().get(), scc_data_csr.data().get(), scc_size,
+					 scc_nnz, L_indptr, L_indices, L_data, U_indptr, U_indices, U_data);
+
+	// now offset scc_*_csr so we have only transitions
+
+	d_idxvec nonempty_rows(included_terminals - scc_size);
+
+	auto end = thrust::copy_if(
+		thrust::make_zip_iterator(scc_indptr_csr.begin() + scc_size, scc_indptr_csr.begin() + scc_size + 1,
+								  thrust::make_counting_iterator<index_t>(0)),
+		thrust::make_zip_iterator(scc_indptr_csr.end() - 1, scc_indptr_csr.end(),
+								  thrust::make_counting_iterator<index_t>(included_terminals - scc_size)),
+		thrust::make_zip_iterator(thrust::make_constant_iterator<index_t>(0),
+								  thrust::make_constant_iterator<index_t>(0), nonempty_rows.begin()),
+		[] __device__(thrust::tuple<index_t, index_t, index_t> x) {
+			return thrust::get<1>(x) - thrust::get<0>(x) != 0;
+		});
+
+	nonempty_rows.resize(thrust::get<2>(end.get_iterator_tuple()) - nonempty_rows.begin());
+
+	auto L_data_trans_offset = L_data.size();
+	L_data.resize(L_data.size() + nonempty_rows.size() * scc_size);
+	thrust::fill(L_data.begin() + L_data_trans_offset, L_data.end(), 0);
+
+	d_datvec scratch(nonempty_rows.size() * scc_size);
+
+	{
+		int blocksize = 512;
+		int gridsize = (nonempty_rows.size() + blocksize - 1) / blocksize;
+
+		partial_factorize<<<gridsize, blocksize>>>(
+			nonempty_rows.size(), scc_size, nonempty_rows.data().get(), U_indptr.data().get(), U_indices.data().get(),
+			U_data.data().get(), scc_indptr_csr.data().get() + scc_size, scc_indices_csr.data().get() + scc_nnz,
+			scc_data_csr.data().get() + scc_nnz, L_data.data().get() + L_data_trans_offset, scratch.data().get());
+
+		CHECK_CUDA(cudaDeviceSynchronize());
+	}
+
+	L_indices.resize(L_data.size());
+
+	thrust::tabulate(L_indices.begin() + L_data_trans_offset, L_indices.end(),
+					 [scc_size] __device__(index_t idx) { return idx % scc_size; });
+
+	L_indptr.resize(included_terminals + 1);
+	thrust::fill(L_indptr.begin() + scc_size + 1, L_indptr.end(), 0);
+
+	thrust::for_each(
+		nonempty_rows.begin(), nonempty_rows.begin(),
+		[ind = L_indptr.data().get() + scc_size, scc_size] __device__(index_t x) { ind[x + 1] = scc_size; });
+
+	thrust::inclusive_scan(L_indptr.begin() + scc_size, L_indptr.end(), L_indptr.begin() + scc_size);
+}
+
 void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
+	index_t nonterm_idx;
+
+
+
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
 	thrust::host_vector<float> h_data = data;

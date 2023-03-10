@@ -15,7 +15,7 @@ class solver
 	const d_idxvec& indptr_;	   // CSC
 
 	d_idxvec ordered_vertices_;
-	thrust::host_vector<index_t> terminals_offsets_;
+	thrust::host_vector<index_t> terminals_offsets_, nonterminals_offsets_;
 
 	d_idxvec submatrix_vertex_mapping_;
 
@@ -31,6 +31,10 @@ class solver
 	void csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
 						index_t out_n, index_t nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
 						thrust::device_vector<float>& out_data);
+
+	void LU_factorization(const index_t* indptr, const index_t* indices, const float* data, int n, int nnz,
+						  d_idxvec& L_indptr, d_idxvec& L_indices, d_datvec& L_data, d_idxvec& U_indptr,
+						  d_idxvec& U_indices, d_datvec& U_data);
 
 
 public:
@@ -58,7 +62,9 @@ public:
 					  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 					  thrust::device_vector<float>& x_data);
 
-	void reorganize_terminal_sccs();
+	void solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, const d_idxvec& indices,
+							  const thrust::device_vector<float>& data, d_idxvec& L_indptr, d_idxvec& L_indices,
+							  d_datvec& L_data, d_idxvec& U_indptr, d_idxvec& U_indices, d_datvec& U_data);
 
 	void solve_terminal_part();
 
