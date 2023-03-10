@@ -480,8 +480,8 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 											   L_indptr.data(), L_cols.data(), descr_U, U_data.data(), U_indptr.data(),
 											   U_cols.data(), info, buffer.data()));
 
-	print("P", (d_idxvec)P);
-	print("Q", (d_idxvec)Q);
+	//print("P", (d_idxvec)P);
+	//print("Q", (d_idxvec)Q);
 
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
