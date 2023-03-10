@@ -699,35 +699,37 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// - matrix U is base-1
 	// - matrix U is upper triangular
 	// - matrix U has non-unit diagonal
-	cusparseCreateMatDescr(&descr_M);
-	cusparseSetMatIndexBase(descr_M, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(descr_M, CUSPARSE_MATRIX_TYPE_GENERAL);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_M));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_M, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_M, CUSPARSE_MATRIX_TYPE_GENERAL));
 
-	cusparseCreateMatDescr(&descr_L);
-	cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER);
-	cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
 
-	cusparseCreateMatDescr(&descr_U);
-	cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO);
-	cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL);
-	cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER);
-	cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT);
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
 	// step 2: create a empty info structure
 	// we need one info for csrilu02 and two info's for csrsv2
-	cusparseCreateCsrilu02Info(&info_M);
-	cusparseCreateBsrsv2Info(&info_L);
-	cusparseCreateBsrsv2Info(&info_U);
+	CHECK_CUSPARSE(cusparseCreateCsrilu02Info(&info_M));
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_L));
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
 	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	cusparseScsrilu02_bufferSize(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
-								 rows.data().get(), info_M, &pBufferSize_M);
-	cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, descr_L,
-							   data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L, &pBufferSize_L);
-	cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
-							   data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U, &pBufferSize_U);
+	CHECK_CUSPARSE(cusparseScsrilu02_bufferSize(context_.cusparse_handle, n, nnz, descr_M, data.data().get(),
+												indptr.data().get(), rows.data().get(), info_M, &pBufferSize_M));
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz,
+											  descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											  info_L, &pBufferSize_L));
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
+											  descr_U, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											  info_U, &pBufferSize_U));
 
 	pBufferSize = std::max(pBufferSize_M, std::max(pBufferSize_L, pBufferSize_U));
 
@@ -740,8 +742,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// The lower(upper) triangular part of M has the same sparsity pattern as L(U),
 	// we can do analysis of csrilu0 and csrsv2 simultaneously.
 
-	cusparseScsrilu02_analysis(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
-							   rows.data().get(), info_M, policy_M, pBuffer);
+	CHECK_CUSPARSE(cusparseScsrilu02_analysis(context_.cusparse_handle, n, nnz, descr_M, data.data().get(),
+											  indptr.data().get(), rows.data().get(), info_M, policy_M, pBuffer));
 
 	auto status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &structural_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
@@ -749,23 +751,23 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 		printf("A(%d,%d) is missing\n", structural_zero, structural_zero);
 	}
 
-	cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, descr_L,
-							 data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L, policy_L, pBuffer);
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, descr_L,
+											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L,
+											policy_L, pBuffer));
 
-	cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
-							 data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U, policy_U, pBuffer);
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
+											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U,
+											policy_U, pBuffer));
 
 	// step 5: M = L * U
-	cusparseScsrilu02(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
-					  rows.data().get(), info_M, policy_M, pBuffer);
+	CHECK_CUSPARSE(cusparseScsrilu02(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
+									 rows.data().get(), info_M, policy_M, pBuffer));
 
 	status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &numerical_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
 	{
 		printf("U(%d,%d) is zero\n", numerical_zero, numerical_zero);
 	}
-
-
 
 
 
@@ -793,13 +795,13 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 		std::cout << ".";
 
 		// step 6: solve L*z = x
-		cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha, descr_L,
-							  data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L, b_vec.data().get(),
-							  z_vec.data().get(), policy_L, pBuffer);
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
+											 descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											 info_L, b_vec.data().get(), z_vec.data().get(), policy_L, pBuffer));
 
-		cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha, descr_L,
-							  data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L, z_vec.data().get(),
-							  x_vec.data().get(), policy_L, pBuffer);
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
+											 descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											 info_L, z_vec.data().get(), x_vec.data().get(), policy_L, pBuffer));
 
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
@@ -822,12 +824,12 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 	// step 6: free resources
 	cudaFree(pBuffer);
-	cusparseDestroyMatDescr(descr_M);
-	cusparseDestroyMatDescr(descr_L);
-	cusparseDestroyMatDescr(descr_U);
-	cusparseDestroyCsrilu02Info(info_M);
-	cusparseDestroyBsrsv2Info(info_L);
-	cusparseDestroyBsrsv2Info(info_U);
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_M));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
+	CHECK_CUSPARSE(cusparseDestroyCsrilu02Info(info_M));
+	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_L));
+	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_U));
 }
 
 void solver::solve_nonterminal_part()
