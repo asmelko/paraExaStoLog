@@ -71,7 +71,7 @@ TEST(trans_graph, toy)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -105,20 +105,14 @@ TEST(solver, toy)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
 
 	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
-	std::cout << "before" << std::endl;
-
-	std::cout << g.reordered_vertices.size() << g.terminals_offsets.size();
-
 	solver s(context, table, std::move(g), std::move(st));
-
-	std::cout << "after" << std::endl;
 
 	s.solve();
 
@@ -173,7 +167,7 @@ TEST(solver, toy2)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
@@ -235,7 +229,7 @@ TEST(solver, toy3)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
