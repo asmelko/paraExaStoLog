@@ -681,7 +681,9 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	int pBufferSize_L;
 	int pBufferSize_U;
 	int pBufferSize;
-	void* pBuffer = 0;
+	void* pBufferM = 0;
+	void* pBufferL = 0;
+	void* pBufferU = 0;
 	int structural_zero;
 	int numerical_zero;
 	const float alpha = 1.;
@@ -734,7 +736,9 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	pBufferSize = std::max(pBufferSize_M, std::max(pBufferSize_L, pBufferSize_U));
 
 	// pBuffer returned by cudaMalloc is automatically aligned to 128 bytes.
-	cudaMalloc((void**)&pBuffer, pBufferSize);
+	cudaMalloc((void**)&pBufferM, pBufferSize_M);
+	cudaMalloc((void**)&pBufferL, pBufferSize_L);
+	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
 	// step 4: perform analysis of incomplete Cholesky on M
 	//         perform analysis of triangular solve on L
@@ -743,7 +747,7 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// we can do analysis of csrilu0 and csrsv2 simultaneously.
 
 	CHECK_CUSPARSE(cusparseScsrilu02_analysis(context_.cusparse_handle, n, nnz, descr_M, data.data().get(),
-											  indptr.data().get(), rows.data().get(), info_M, policy_M, pBuffer));
+											  indptr.data().get(), rows.data().get(), info_M, policy_M, pBufferM));
 
 	auto status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &structural_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
@@ -753,15 +757,15 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, descr_L,
 											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_L,
-											policy_L, pBuffer));
+											policy_L, pBufferL));
 
 	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
 											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U,
-											policy_U, pBuffer));
+											policy_U, pBufferU));
 
 	// step 5: M = L * U
 	CHECK_CUSPARSE(cusparseScsrilu02(context_.cusparse_handle, n, nnz, descr_M, data.data().get(), indptr.data().get(),
-									 rows.data().get(), info_M, policy_M, pBuffer));
+									 rows.data().get(), info_M, policy_M, pBufferM));
 
 	status = cusparseXcsrilu02_zeroPivot(context_.cusparse_handle, info_M, &numerical_zero);
 	if (CUSPARSE_STATUS_ZERO_PIVOT == status)
@@ -797,11 +801,11 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 		// step 6: solve L*z = x
 		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
 											 descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
-											 info_L, b_vec.data().get(), z_vec.data().get(), policy_L, pBuffer));
+											 info_L, b_vec.data().get(), z_vec.data().get(), policy_L, pBufferL));
 
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
-											 descr_L, data.data().get(), indptr.data().get(), rows.data().get(), 1,
-											 info_L, z_vec.data().get(), x_vec.data().get(), policy_L, pBuffer));
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, &alpha,
+											 descr_U, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											 info_U, z_vec.data().get(), x_vec.data().get(), policy_U, pBufferU));
 
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
