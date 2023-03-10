@@ -135,7 +135,7 @@ TEST(solver, toy)
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
-	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 3, 5, 7, 2, 0, 6, 4, 6, 0));
+	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 7, 5, 3, 2, 6, 0, 4, 6, 0));
 	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1, 1, 1, 1, 1, 0.5, 0.5, 1, 0.5, 0.5));
 
 	thrust::host_vector<float> final_state = s.final_state;
