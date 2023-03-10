@@ -53,10 +53,10 @@ public:
 
 	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
 
-	void solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
-						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
-						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
-						  thrust::device_vector<float>& x_data);
+	void solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+					  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
+					  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
+					  thrust::device_vector<float>& x_data);
 
 	void reorganize_terminal_sccs();
 

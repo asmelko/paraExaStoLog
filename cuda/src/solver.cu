@@ -422,10 +422,10 @@ void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, 
 	CHECK_CUSPARSE(cusparseDestroySpMat(out_descr));
 }
 
-void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data,
-							  int n, int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
-							  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
-							  thrust::device_vector<float>& x_data)
+void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
+						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
+						  thrust::device_vector<float>& x_data)
 {
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
@@ -452,7 +452,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
-	std::cout << "Trisystem analysis begin" << std::endl;
+	std::cout << "solve analysis begin" << std::endl;
 
 	CHECK_CUSOLVER(
 		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
@@ -463,7 +463,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 
 	std::vector<char> buffer(workspace);
 
-	std::cout << "Trisystem factor begin" << std::endl;
+	std::cout << "factor begin" << std::endl;
 
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
@@ -478,7 +478,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
 
-	std::cout << "Trisystem solve begin" << std::endl;
+	std::cout << "solve begin" << std::endl;
 
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
@@ -509,7 +509,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
 						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
-	std::cout << "Trisystem solve end" << std::endl;
+	std::cout << "solve end" << std::endl;
 
 
 	x_indptr = hx_indptr;
@@ -617,8 +617,8 @@ void solver::solve_nonterminal_part()
 
 	std::cout << "Trisystem begin" << std::endl;
 
-	solve_tri_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
-					 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
+	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
+				 A_indices, A_data, X_indptr, X_indices, X_data);
 
 
 	nonterm_indptr.resize(U_indptr_csr.size());
