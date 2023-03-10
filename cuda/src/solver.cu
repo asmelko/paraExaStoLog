@@ -25,11 +25,11 @@ struct equals_ftor : public thrust::unary_function<index_t, bool>
 solver::solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s)
 	: context_(context),
 	  initial_state_(std::move(s.state)),
-	  ordered_vertices_(std::move(g.reordered_vertices)),
-	  terminals_offsets_(std::move(g.terminals_offsets)),
 	  rows_(t.rows),
 	  cols_(t.cols),
 	  indptr_(t.indptr),
+	  ordered_vertices_(std::move(g.reordered_vertices)),
+	  terminals_offsets_(std::move(g.terminals_offsets)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
 {}
 
@@ -219,9 +219,13 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 void solver::solve_terminal_part()
 {
 	// BEWARE this expects that scc_offsets_ contains just terminal scc indices
+
+	std::cout << "to back" << terminals_offsets_.back() << std::endl;
 	term_indptr = terminals_offsets_;
 	term_rows.resize(terminals_offsets_.back());
 	term_data.resize(terminals_offsets_.back());
+
+	std::cout << "strat solving terminal part" << std::endl;
 
 	thrust::copy(ordered_vertices_.begin(), ordered_vertices_.begin() + terminals_offsets_.back(), term_rows.begin());
 
@@ -459,7 +463,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 
 	std::vector<char> buffer(workspace);
 
-	std::cout << "Trisystem analysis begin" << std::endl;
+	std::cout << "Trisystem factor begin" << std::endl;
 
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
@@ -474,6 +478,9 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
 
+	std::cout << "Trisystem solve begin" << std::endl;
+
+
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
 		thrust::host_vector<float> b_vec(n, 0.f);
@@ -482,7 +489,7 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
 					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
 
-		std::cout << "Trisystem solve begin" << std::endl;
+		std::cout << ".";
 
 		CHECK_CUSOLVER(
 			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
@@ -502,6 +509,8 @@ void solver::solve_tri_system(const d_idxvec& indptr, const d_idxvec& rows, cons
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
 						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
+	std::cout << "Trisystem solve end" << std::endl;
+
 
 	x_indptr = hx_indptr;
 

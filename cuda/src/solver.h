@@ -14,10 +14,10 @@ class solver
 	const d_idxvec &rows_, &cols_; // COO
 	const d_idxvec& indptr_;	   // CSC
 
-	d_idxvec submatrix_vertex_mapping_;
-
-	const d_idxvec ordered_vertices_;
+	d_idxvec ordered_vertices_;
 	thrust::host_vector<index_t> terminals_offsets_;
+
+	d_idxvec submatrix_vertex_mapping_;
 
 	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 					  int nnz);

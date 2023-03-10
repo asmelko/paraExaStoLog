@@ -26,7 +26,8 @@ __global__ void topological_labelling(index_t n, const index_t* __restrict__ ind
 
 	for (auto i = begin; i < end; i++)
 	{
-		if (labels[indices[begin]] == 0) // not labelled
+		auto l = labels[indices[begin]];
+		if (l == 0 || l == current_label) // not labelled or labelled in this round
 			return;
 	}
 
@@ -43,10 +44,10 @@ __global__ void reorganize(index_t v_n, index_t scc_n, index_t t_n, const index_
 	if (idx >= scc_n)
 		return;
 
-	idx = (idx >= t_n) ? (scc_n - 1) - (idx - t_n) : idx;
+	// idx = (idx >= t_n) ? (scc_n - 1) - (idx - t_n) : idx;
 
-	auto begin = offsets[idx];
 	auto scc_idx = order[idx];
+	auto begin = offsets[idx];
 
 	for (int v_idx = 0; v_idx < v_n; v_idx++)
 	{
@@ -119,17 +120,20 @@ d_idxvec transition_graph::compute_sccs()
 	return h_labels;
 }
 
-void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices, d_idxvec& labels, d_idxvec& ordering)
+void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices, d_idxvec& sizes, d_idxvec& labels,
+								d_idxvec& ordering)
 {
 	index_t n = indptr.size() - 1;
 	labels = d_idxvec(n, 0);
 
-	thrust::device_vector<bool> changed(1, false);
+	thrust::device_vector<bool> changed(1);
 
 	index_t curr_label = 0;
 	do
 	{
+		changed[0] = false;
 		++curr_label;
+
 		int blocksize = 256;
 		int gridsize = (n + blocksize - 1) / blocksize;
 		topological_labelling<<<gridsize, blocksize>>>(n, indptr.data().get(), indices.data().get(),
@@ -138,11 +142,17 @@ void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices,
 		CHECK_CUDA(cudaDeviceSynchronize());
 	} while (changed.front() == true);
 
+	// print("topo labels   ", labels);
+
 	ordering = d_idxvec(thrust::make_counting_iterator(0), thrust::make_counting_iterator(n));
-	thrust::sort_by_key(labels.begin(), labels.end(), ordering.begin());
+	thrust::sort_by_key(labels.begin(), labels.end(), thrust::make_zip_iterator(ordering.begin(), sizes.begin() + 1));
+
+	//print("20 topo ordering ", ordering, 20);
+	//print("20 topo sizes    ", sizes, 20);
 }
 
-void transition_graph::create_metagraph(d_idxvec& meta_indptr, d_idxvec& meta_indices)
+void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_count, d_idxvec& meta_indptr,
+										d_idxvec& meta_indices)
 {
 	auto in_begin = thrust::make_zip_iterator(thrust::make_permutation_iterator(labels.begin(), cols_.begin()),
 											  thrust::make_permutation_iterator(labels.begin(), rows_.begin()));
@@ -159,9 +169,9 @@ void transition_graph::create_metagraph(d_idxvec& meta_indptr, d_idxvec& meta_in
 	meta_cols.resize(thrust::get<0>(meta_end.get_iterator_tuple()) - meta_cols.begin());
 	meta_rows.resize(meta_cols.size());
 
-	meta_indices = std::move(meta_cols);
+	meta_indices = std::move(meta_rows);
 
-	transition_table::coo2csc(context_.cusparse_handle, sccs_count, meta_rows, meta_indices, meta_indptr);
+	transition_table::coo2csc(context_.cusparse_handle, sccs_count, meta_indices, meta_cols, meta_indptr);
 }
 
 void transition_graph::find_terminals()
@@ -169,25 +179,26 @@ void transition_graph::find_terminals()
 	std::cout << "vertices count " << vertices_count_ << std::endl;
 	std::cout << "edges count " << edges_count_ << std::endl;
 
-	labels = compute_sccs();
+	auto labels = compute_sccs();
 
 	std::cout << "labeled " << std::endl;
 
 	d_idxvec scc_ids_tmp = labels;
 	thrust::sort(scc_ids_tmp.begin(), scc_ids_tmp.end());
 
-
 	d_idxvec scc_ids(vertices_count_), scc_sizes(vertices_count_ + 1);
-	auto scc_end = thrust::reduce_by_key(scc_ids.begin(), scc_ids.end(), thrust::make_constant_iterator<index_t>(1),
-										 scc_ids.begin(), scc_sizes.begin() + 1);
-
-	print("labels  ", labels);
-	print("scc_ids ", scc_ids);
+	auto scc_end =
+		thrust::reduce_by_key(scc_ids_tmp.begin(), scc_ids_tmp.end(), thrust::make_constant_iterator<index_t>(1),
+							  scc_ids.begin(), scc_sizes.begin() + 1);
 
 	scc_sizes.resize(scc_end.second - scc_sizes.begin());
 	scc_ids.resize(scc_sizes.size() - 1);
 
-	sccs_count = scc_ids.size();
+	// print("labels    ", labels);
+	// print("scc_ids   ", scc_ids);
+	// print("scc_sizes ", scc_sizes);
+
+	auto sccs_count = scc_ids.size();
 
 	// make labels start from 0
 	{
@@ -204,7 +215,6 @@ void transition_graph::find_terminals()
 
 	if (sccs_count == 1)
 	{
-		terminals = d_idxvec(1, 0);
 		reordered_vertices = d_idxvec(thrust::make_counting_iterator<index_t>(0),
 									  thrust::make_counting_iterator<index_t>(vertices_count_));
 
@@ -215,40 +225,50 @@ void transition_graph::find_terminals()
 	}
 
 	d_idxvec meta_indptr, meta_indices;
-	create_metagraph(meta_indptr, meta_indices);
+	create_metagraph(labels, sccs_count, meta_indptr, meta_indices);
 
 	d_idxvec meta_labels, meta_ordering;
-	toposort(meta_indptr, meta_indices, meta_labels, meta_ordering);
-
+	toposort(meta_indptr, meta_indices, scc_sizes, meta_labels, meta_ordering);
 
 	// get terminals
 	{
 		auto terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
-		terminals.resize(terminals_count);
-		thrust::copy(meta_ordering.begin(), meta_ordering.begin() + terminals_count, terminals.begin());
+
+		std::cout << "terminals count " << terminals_count << std::endl;
+		std::cout << "scc_sizes count " << scc_sizes.size() << std::endl;
 
 		terminals_offsets.resize(terminals_count + 1);
-		terminals_offsets[0] = 0;
-
-		thrust::copy(thrust::make_permutation_iterator(scc_sizes.begin() + 1, terminals.begin()),
-					 thrust::make_permutation_iterator(scc_sizes.begin() + 1, terminals.end()),
-					 terminals_offsets.begin());
+		terminals_offsets.assign(scc_sizes.begin(), scc_sizes.begin() + terminals_count + 1);
 
 		thrust::inclusive_scan(terminals_offsets.begin(), terminals_offsets.end(), terminals_offsets.begin());
 	}
 
+	print("t offsets ", (d_idxvec)terminals_offsets);
+
 	// reorganize
 	{
 		scc_sizes[0] = 0;
+
+		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
+		thrust::reverse(scc_sizes.begin() + terminals_offsets.size(), scc_sizes.end());
+		thrust::reverse(meta_ordering.begin() + terminals_offsets.size() - 1, meta_ordering.end());
+
 		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
 
+		// print("20 scc sizes ", scc_sizes, 20);
+
 		reordered_vertices.resize(vertices_count_);
+
 
 		int blocksize = 256;
 		int gridsize = (sccs_count + blocksize - 1) / blocksize;
 
-		reorganize<<<blocksize, gridsize>>>(vertices_count_, sccs_count, terminals_offsets.size() - 1,
+		reorganize<<<gridsize, blocksize>>>(vertices_count_, sccs_count, terminals_offsets.size() - 1,
 											scc_sizes.data().get(), meta_ordering.data().get(), labels.data().get(),
 											reordered_vertices.data().get());
+
+		CHECK_CUDA(cudaDeviceSynchronize());
 	}
+
+	// print("20 reordered_vertices ", reordered_vertices, 20);
 }

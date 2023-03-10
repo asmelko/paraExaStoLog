@@ -70,12 +70,11 @@ TEST(trans_graph, toy)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> labels = g.labels;
-	thrust::host_vector<index_t> terminals = g.terminals;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets;
 
-	ASSERT_EQ(g.sccs_count, 8);
-	ASSERT_THAT(labels, ::testing::ElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
-	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
+	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 7, 6, 5, 3, 0, 4));
+	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
 }
 
 TEST(initial_value, toy)
@@ -105,15 +104,21 @@ TEST(solver, toy)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> labels = g.labels;
-	thrust::host_vector<index_t> terminals = g.terminals;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets;
 
-	ASSERT_EQ(g.sccs_count, 8);
-	ASSERT_THAT(terminals, ::testing::ElementsAre(1, 2, 4));
+	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 0, 3, 5, 6, 7));
+	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
 
 	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
+	std::cout << "before" << std::endl;
+
+	std::cout << g.reordered_vertices.size() << g.terminals_offsets.size();
+
 	solver s(context, table, std::move(g), std::move(st));
+
+	std::cout << "after" << std::endl;
 
 	s.solve();
 
@@ -135,11 +140,11 @@ TEST(solver, toy)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<float> nonzero_data(labels.size());
+	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
 								 nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
@@ -167,12 +172,11 @@ TEST(solver, toy2)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> labels = g.labels;
-	thrust::host_vector<index_t> terminals = g.terminals;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets;
 
-	ASSERT_EQ(g.sccs_count, 3);
-	ASSERT_THAT(labels, ::testing::ElementsAre(0, 0, 0, 3, 4, 0, 0, 0));
-	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
+	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 3, 4));
+	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
 
 	initial_state st(model.nodes, { "A", "B", "C" }, { false, false, false }, 1.f);
 
@@ -198,11 +202,11 @@ TEST(solver, toy2)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<float> nonzero_data(labels.size());
+	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
 								 nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
@@ -230,11 +234,11 @@ TEST(solver, toy3)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> labels = g.labels;
-	thrust::host_vector<index_t> terminals = g.terminals;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets;
 
-	ASSERT_EQ(g.sccs_count, 1);
-	ASSERT_THAT(terminals, ::testing::ElementsAre(0));
+	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 3));
+	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
 
 	initial_state st(model.nodes, { "A", "B" }, { false, false }, 1.f);
 
@@ -260,11 +264,11 @@ TEST(solver, toy3)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(labels.size());
-	thrust::host_vector<float> nonzero_data(labels.size());
+	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(labels.size()), final_state.begin(),
+								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
 								 nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
