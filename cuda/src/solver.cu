@@ -468,6 +468,21 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
 
+	
+
+	int nnz_l, nnz_u;
+	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(context_.cusolver_handle, &nnz_l, &nnz_u, info));
+
+	std::vector<index_t> P(n), Q(n), L_indptr(n + 1), U_indptr(n + 1), L_cols(nnz_l), U_cols(nnz_u);
+	std::vector<float> L_data(nnz_l), U_data(nnz_u);
+
+	CHECK_CUSOLVER(cusolverSpScsrluExtractHost(context_.cusolver_handle, P.data(), Q.data(), descr_L, L_data.data(),
+											   L_indptr.data(), L_cols.data(), descr_U, U_data.data(), U_indptr.data(),
+											   U_cols.data(), info, buffer.data()));
+
+	print("P", (d_idxvec)P);
+	print("Q", (d_idxvec)Q);
+
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 	thrust::host_vector<index_t> hb_indices = b_indices;
