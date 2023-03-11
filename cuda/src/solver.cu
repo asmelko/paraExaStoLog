@@ -658,11 +658,169 @@ void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, c
 	thrust::inclusive_scan(L_indptr.begin() + scc_size, L_indptr.end(), L_indptr.begin() + scc_size);
 }
 
+template <bool L>
+__global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indptr, const index_t* __restrict__ offsets,
+								   const index_t** __restrict__ in_indptr, index_t* __restrict__ out_indptr)
+{
+	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (idx >= n)
+		return;
+
+	if (idx == 0)
+		out_indptr[0] = 0;
+
+	auto begin = offsets[idx];
+	auto end = offsets[idx + 1];
+
+	index_t one = 1; // todo add a special case for L
+
+	if constexpr (L)
+	{
+		if (end - begin == 1)
+		{
+			one = N_indptr[begin + 1] - N_indptr[begin] - 1;
+		}
+	}
+
+	const index_t* my_indptr = (end - begin == 1) ? &one : (in_indptr[idx] + 1);
+
+	for (index_t i = begin; i < end; i++)
+	{
+		out_indptr[i + 1] = my_indptr[begin - i] + begin;
+	}
+}
+
+// This is for all sccs of U and for non trivial sccs of L
+__global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restrict__ N_indptr,
+											 const index_t* __restrict__ N_indices, const float* __restrict__ N_data,
+											 const index_t* __restrict__ offsets,
+											 const index_t** __restrict__ in_indices,
+											 const float** __restrict__ in_data, const index_t* __restrict__ out_indptr,
+											 index_t* __restrict__ out_indices, float* __restrict__ out_data)
+{
+	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (idx >= 2 * n)
+		return;
+
+	bool data = idx >= n;
+	idx = idx % n;
+
+	const auto indptr_begin = offsets[idx];
+	const auto indptr_end = offsets[idx + 1];
+
+	if (indptr_end - indptr_begin == 1)
+		return;
+
+	auto my_begin = out_indptr[indptr_begin];
+	auto scc_nnz_size = out_indptr[indptr_end] - my_begin;
+
+	if (!data)
+	{
+		const index_t* my_indices = (scc_nnz_size == 1) ? &indptr_begin : in_indices[idx];
+
+		for (index_t i = 0; i < scc_nnz_size; i++)
+		{
+			out_indices[my_begin] = my_indices[i];
+		}
+	}
+	else
+	{
+		// find pivot (data with negative value)
+		// optimization: make negative value always the first value
+		float pivot;
+		if (scc_nnz_size == 1)
+		{
+			auto N_begin = N_indptr[indptr_begin];
+			auto N_end = N_indptr[indptr_begin + 1];
+			for (auto i = N_begin; i < N_end; i++)
+			{
+				auto d = N_data[i];
+				if (d < 0)
+				{
+					pivot = N_data[i];
+					break;
+				}
+			}
+		}
+		const float* my_data = (scc_nnz_size == 1) ? &pivot : in_data[idx];
+
+		for (index_t i = 0; i < scc_nnz_size; i++)
+		{
+			out_data[my_begin] = my_data[i];
+		}
+	}
+}
+
+
+__global__ void nway_hstack_indices_and_data_trivial_L(
+	index_t n, const index_t* __restrict__ N_indptr, const index_t* __restrict__ N_indices,
+	const float* __restrict__ N_data, const index_t* __restrict__ offsets, const index_t** __restrict__ in_indices,
+	const float** __restrict__ in_data, const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
+	float* __restrict__ out_data)
+{
+	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (idx >= n)
+		return;
+
+	const auto indptr_begin = offsets[idx];
+	const auto indptr_end = offsets[idx + 1];
+
+	if (indptr_end - indptr_begin != 1)
+		return;
+
+	auto my_begin = out_indptr[indptr_begin];
+	// auto scc_nnz_size = out_indptr[indptr_end] - my_begin;
+
+	// find pivot and its index
+	float pivot;
+	index_t pivot_index;
+	auto N_begin = N_indptr[indptr_begin];
+	auto N_end = N_indptr[indptr_begin + 1];
+
+	auto N_scc_nnz_size = N_end - N_begin;
+
+	for (auto i = N_begin; i < N_end; i++)
+	{
+		auto d = N_data[i];
+		if (d < 0)
+		{
+			pivot = N_data[i];
+			pivot_index = i;
+			break;
+		}
+	}
+
+	for (auto i = N_begin; i < pivot_index; i++)
+	{
+		out_indices[my_begin + i - pivot_index] = N_indices[i];
+		out_data[my_begin + i - pivot_index] = N_data[i] / pivot;
+	}
+
+	for (auto i = pivot_index + 1; i < N_end; i++)
+	{
+		out_indices[my_begin + i - pivot_index - 1] = N_indices[i];
+		out_data[my_begin + i - pivot_index - 1] = N_data[i] / pivot;
+	}
+}
+
+
 void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
+	for (auto nonterm_idx = 0; nonterm_idx < nonterminals_offsets_.size() - 1; nonterm_idx++)
+	{
+		d_idxvec L_indptr, L_indices, U_indptr, U_indices;
+		d_datvec L_data, U_data;
+
+		solve_single_nonterm(nonterm_idx, indptr, rows, data, L_indptr, L_indices, L_data, U_indptr, U_indices, U_data);
+	}
+
+
 	thrust::host_vector<index_t> h_indptr = indptr;
 	thrust::host_vector<index_t> h_rows = rows;
 	thrust::host_vector<float> h_data = data;
