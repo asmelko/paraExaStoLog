@@ -682,7 +682,7 @@ __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indp
 		if (end - begin == 1)
 		{
 			one = N_indptr[begin + 1] - N_indptr[begin];
-			printf("idx %i one %i \n", idx, one);
+			//printf("idx %i one %i \n", idx, one);
 		}
 
 	const index_t* my_indptr = (end - begin == 1) ? &one : (in_indptr[idx] + 1);
@@ -798,7 +798,7 @@ __global__ void nway_hstack_indices_and_data_trivial_L(
 		}
 	}
 
-	printf("idx %i pivot %f p_idx %i\n", idx, pivot, pivot_index);
+	//printf("idx %i pivot %f p_idx %i\n", idx, pivot, pivot_index);
 
 	for (auto i = N_begin; i < pivot_index; i++)
 	{
@@ -829,9 +829,9 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 {
 	index_t nt_n = nonterminals_offsets_.size() - 1;
 
-	print("N indptr  ", indptr);
-	print("N indices ", rows);
-	print("N data    ", data);
+	//print("N indptr  ", indptr);
+	//print("N indices ", rows);
+	//print("N data    ", data);
 
 	d_idxvec L_indptr(nt_n + 1), L_indices, U_indptr(nt_n + 1), U_indices;
 	d_datvec L_data, U_data;
@@ -881,8 +881,8 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		index_t U_nnz = U_indptr.back();
 		index_t L_nnz = L_indptr.back();
 
-		print("U_indptr ", U_indptr);
-		print("L_indptr ", L_indptr);
+		//print("U_indptr ", U_indptr);
+		//print("L_indptr ", L_indptr);
 
 		U_indices.resize(U_nnz);
 		U_data.resize(U_nnz);
@@ -908,10 +908,10 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		CHECK_CUDA(cudaDeviceSynchronize());
 
 
-		print("U_indices ", U_indices);
-		print("U_data    ", U_data);
-		print("L_indices ", L_indices);
-		print("L_data    ", L_data);
+		//print("U_indices ", U_indices);
+		//print("U_data    ", U_data);
+		//print("L_indices ", L_indices);
+		//print("L_data    ", L_data);
 	}
 
 
@@ -932,7 +932,7 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
 	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
@@ -985,7 +985,7 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
 					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
 
-		print("b ", b_vec);
+		//print("b ", b_vec);
 
 		// step 6: solve L*z = x
 		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
@@ -993,7 +993,7 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 											 L_indices.data().get(), 1, info_L, b_vec.data().get(), z_vec.data().get(),
 											 policy_L, pBufferL));
 
-		print("z ", z_vec);
+		//print("z ", z_vec);
 
 		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
 											 U_data.size(), &alpha, descr_U, U_data.data().get(), U_indptr.data().get(),
@@ -1003,7 +1003,7 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
-		print("x ", x_vec);
+		//print("x ", x_vec);
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
