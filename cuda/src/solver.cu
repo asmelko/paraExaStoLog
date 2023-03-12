@@ -660,7 +660,7 @@ void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, c
 
 template <bool L>
 __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indptr, const index_t* __restrict__ offsets,
-								   const index_t** __restrict__ in_indptr, index_t* __restrict__ out_indptr)
+								   const index_t* const* __restrict__ in_indptr, index_t* __restrict__ out_indptr)
 {
 	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -694,9 +694,10 @@ template <bool L>
 __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restrict__ N_indptr,
 											 const index_t* __restrict__ N_indices, const float* __restrict__ N_data,
 											 const index_t* __restrict__ offsets,
-											 const index_t** __restrict__ in_indices,
-											 const float** __restrict__ in_data, const index_t* __restrict__ out_indptr,
-											 index_t* __restrict__ out_indices, float* __restrict__ out_data)
+											 const index_t* const* __restrict__ in_indices,
+											 const float* const* __restrict__ in_data,
+											 const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
+											 float* __restrict__ out_data)
 {
 	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -817,15 +818,16 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
-	index_t n = nonterminals_offsets_.size() - 1;
+	index_t nt_n = nonterminals_offsets_.size() - 1;
 
-	d_idxvec L_indptr(n + 1), L_indices, U_indptr(n + 1), U_indices;
+	d_idxvec L_indptr(nt_n + 1), L_indices, U_indptr(nt_n + 1), U_indices;
 	d_datvec L_data, U_data;
 
 	{
-		thrust::device_vector<LU_part_t> lu_parts(n);
-		thrust::device_vector<index_t*> L_indptr_vec(n), L_indices_vec(n), U_indptr_vec(n), U_indices_vec(n);
-		thrust::device_vector<real_t*> L_data_vec(n), U_data_vec(n);
+		thrust::device_vector<LU_part_t> lu_parts(nt_n);
+		thrust::device_vector<index_t*> L_indptr_vec(nt_n), L_indices_vec(nt_n), U_indptr_vec(nt_n),
+			U_indices_vec(nt_n);
+		thrust::device_vector<real_t*> L_data_vec(nt_n), U_data_vec(nt_n);
 
 		for (auto nonterm_idx = 0; nonterm_idx < nonterminals_offsets_.size() - 1; nonterm_idx++)
 		{
@@ -848,11 +850,11 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 						  [off = nonterminals_offsets_.front()] __device__(index_t x) { return x - off; });
 
 		auto blocksize = 256;
-		auto gridsize = (n + blocksize - 1) / blocksize;
+		auto gridsize = (nt_n + blocksize - 1) / blocksize;
 
-		nway_hstack_indptr<false><<<gridsize, blocksize>>>(n, indptr.data().get(), offsets.data().get(),
+		nway_hstack_indptr<false><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
 														   U_indptr_vec.data().get(), U_indptr.data().get());
-		nway_hstack_indptr<true><<<gridsize, blocksize>>>(n, indptr.data().get(), offsets.data().get(),
+		nway_hstack_indptr<true><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
 														  L_indptr_vec.data().get(), L_indptr.data().get());
 
 		index_t U_nnz = U_indptr.back();
@@ -864,13 +866,15 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		L_indices.resize(L_nnz);
 		L_data.resize(L_nnz);
 
-		nway_hstack_indices_and_data<false><<<gridsize, blocksize>>>(
-			n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
-			U_indices_vec.data().get(), U_data_vec.data().get(), U_indices.data().get(), U_data.data().get());
+		nway_hstack_indices_and_data<false>
+			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
+									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
 
-		nway_hstack_indices_and_data<true><<<gridsize, blocksize>>>(
-			n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
-			L_indices_vec.data().get(), L_data_vec.data().get(), L_indices.data().get(), L_data.data().get());
+		nway_hstack_indices_and_data<true>
+			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
+									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
 	}
 
 
