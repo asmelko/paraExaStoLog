@@ -567,6 +567,9 @@ void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, c
 								  d_datvec& L_data, d_idxvec& U_indptr, d_idxvec& U_indices, d_datvec& U_data)
 {
 	index_t scc_size = nonterminals_offsets_[nonterm_idx + 1] - nonterminals_offsets_[nonterm_idx];
+	if (scc_size == 1)
+		return;
+
 	index_t mat_offset = nonterminals_offsets_[nonterm_idx] - nonterminals_offsets_.front();
 	index_t included_terminals = indptr.size() - 1 - mat_offset;
 
@@ -678,14 +681,15 @@ __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indp
 	if constexpr (L)
 		if (end - begin == 1)
 		{
-			one = N_indptr[begin + 1] - N_indptr[begin] - 1;
+			one = N_indptr[begin + 1] - N_indptr[begin];
+			printf("idx %i one %i \n", idx, one);
 		}
 
 	const index_t* my_indptr = (end - begin == 1) ? &one : (in_indptr[idx] + 1);
 
 	for (index_t i = begin; i < end; i++)
 	{
-		out_indptr[i + 1] = my_indptr[begin - i] + begin;
+		out_indptr[i + 1] = my_indptr[begin - i];
 	}
 }
 
@@ -757,9 +761,9 @@ __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restric
 
 __global__ void nway_hstack_indices_and_data_trivial_L(
 	index_t n, const index_t* __restrict__ N_indptr, const index_t* __restrict__ N_indices,
-	const float* __restrict__ N_data, const index_t* __restrict__ offsets, const index_t** __restrict__ in_indices,
-	const float** __restrict__ in_data, const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
-	float* __restrict__ out_data)
+	const float* __restrict__ N_data, const index_t* __restrict__ offsets,
+	const index_t* const* __restrict__ in_indices, const float* const* __restrict__ in_data,
+	const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices, float* __restrict__ out_data)
 {
 	index_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -786,24 +790,29 @@ __global__ void nway_hstack_indices_and_data_trivial_L(
 	for (auto i = N_begin; i < N_end; i++)
 	{
 		auto d = N_data[i];
-		if (d < 0)
+		if (d < 0.f)
 		{
-			pivot = N_data[i];
+			pivot = d;
 			pivot_index = i;
 			break;
 		}
 	}
 
+	printf("idx %i pivot %f p_idx %i\n", idx, pivot, pivot_index);
+
 	for (auto i = N_begin; i < pivot_index; i++)
 	{
-		out_indices[my_begin + i - pivot_index] = N_indices[i];
-		out_data[my_begin + i - pivot_index] = N_data[i] / pivot;
+		out_indices[my_begin + i - N_begin] = N_indices[i];
+		out_data[my_begin + i - N_begin] = N_data[i] / pivot;
 	}
+
+	out_indices[my_begin + pivot_index - N_begin] = N_indices[pivot_index];
+	out_data[my_begin + pivot_index - N_begin] = 1;
 
 	for (auto i = pivot_index + 1; i < N_end; i++)
 	{
-		out_indices[my_begin + i - pivot_index - 1] = N_indices[i];
-		out_data[my_begin + i - pivot_index - 1] = N_data[i] / pivot;
+		out_indices[my_begin + i - N_begin] = N_indices[i];
+		out_data[my_begin + i - N_begin] = N_data[i] / pivot;
 	}
 }
 
@@ -819,6 +828,10 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 						  thrust::device_vector<float>& x_data)
 {
 	index_t nt_n = nonterminals_offsets_.size() - 1;
+
+	print("N indptr  ", indptr);
+	print("N indices ", rows);
+	print("N data    ", data);
 
 	d_idxvec L_indptr(nt_n + 1), L_indices, U_indptr(nt_n + 1), U_indices;
 	d_datvec L_data, U_data;
@@ -857,8 +870,19 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		nway_hstack_indptr<true><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
 														  L_indptr_vec.data().get(), L_indptr.data().get());
 
+		CHECK_CUDA(cudaDeviceSynchronize());
+
+		thrust::inclusive_scan(U_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0], U_indptr.end(),
+							   U_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0]);
+
+		thrust::inclusive_scan(L_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0], L_indptr.end(),
+							   L_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0]);
+
 		index_t U_nnz = U_indptr.back();
 		index_t L_nnz = L_indptr.back();
+
+		print("U_indptr ", U_indptr);
+		print("L_indptr ", L_indptr);
 
 		U_indices.resize(U_nnz);
 		U_data.resize(U_nnz);
@@ -875,6 +899,19 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
 									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
 									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
+
+		nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
+			nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
+			L_indices_vec.data().get(), L_data_vec.data().get(), L_indptr.data().get(), L_indices.data().get(),
+			L_data.data().get());
+
+		CHECK_CUDA(cudaDeviceSynchronize());
+
+
+		print("U_indices ", U_indices);
+		print("U_data    ", U_data);
+		print("L_indices ", L_indices);
+		print("L_data    ", L_data);
 	}
 
 
@@ -889,14 +926,14 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 	const float alpha = 1.;
 	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
 	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
-	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_NON_TRANSPOSE;
+	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_TRANSPOSE;
 	const cusparseOperation_t trans_U = CUSPARSE_OPERATION_NON_TRANSPOSE;
 
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
 	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
@@ -948,8 +985,6 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
 					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
 
-		std::cout << ".";
-
 		// step 6: solve L*z = x
 		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
 											 descr_L, L_data.data().get(), L_indptr.data().get(),
@@ -963,6 +998,8 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
+
+		print("x ", x_vec);
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
