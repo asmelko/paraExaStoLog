@@ -946,23 +946,23 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
 	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz,
-											  descr_L, L_data.data().get(), L_indptr.data().get(),
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
+											  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
 											  L_indices.data().get(), 1, info_L, &pBufferSize_L));
-	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
-											  descr_U, U_data.data().get(), U_indptr.data().get(),
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
+											  U_data.size(), descr_U, U_data.data().get(), U_indptr.data().get(),
 											  U_indices.data().get(), 1, info_U, &pBufferSize_U));
 
 	cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, descr_L,
-											L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1,
-											info_L, policy_L, pBufferL));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, L_data.size(),
+											descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(),
+											1, info_L, policy_L, pBufferL));
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
-											U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1,
-											info_U, policy_U, pBufferU));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, U_data.size(),
+											descr_U, U_data.data().get(), U_indptr.data().get(), U_indices.data().get(),
+											1, info_U, policy_U, pBufferU));
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 	thrust::host_vector<index_t> hb_indices = b_indices;
@@ -985,14 +985,18 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
 					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
 
+		print("b ", b_vec);
+
 		// step 6: solve L*z = x
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, nnz, &alpha,
-											 descr_L, L_data.data().get(), L_indptr.data().get(),
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
+											 L_data.size(), &alpha, descr_L, L_data.data().get(), L_indptr.data().get(),
 											 L_indices.data().get(), 1, info_L, b_vec.data().get(), z_vec.data().get(),
 											 policy_L, pBufferL));
 
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, &alpha,
-											 descr_U, U_data.data().get(), U_indptr.data().get(),
+		print("z ", z_vec);
+
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
+											 U_data.size(), &alpha, descr_U, U_data.data().get(), U_indptr.data().get(),
 											 U_indices.data().get(), 1, info_U, z_vec.data().get(), x_vec.data().get(),
 											 policy_U, pBufferU));
 
