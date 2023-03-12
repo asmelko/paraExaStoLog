@@ -676,12 +676,10 @@ __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indp
 	index_t one = 1; // todo add a special case for L
 
 	if constexpr (L)
-	{
 		if (end - begin == 1)
 		{
 			one = N_indptr[begin + 1] - N_indptr[begin] - 1;
 		}
-	}
 
 	const index_t* my_indptr = (end - begin == 1) ? &one : (in_indptr[idx] + 1);
 
@@ -692,6 +690,7 @@ __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indp
 }
 
 // This is for all sccs of U and for non trivial sccs of L
+template <bool L>
 __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restrict__ N_indptr,
 											 const index_t* __restrict__ N_indices, const float* __restrict__ N_data,
 											 const index_t* __restrict__ offsets,
@@ -710,8 +709,9 @@ __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restric
 	const auto indptr_begin = offsets[idx];
 	const auto indptr_end = offsets[idx + 1];
 
-	if (indptr_end - indptr_begin == 1)
-		return;
+	if constexpr (L)
+		if (indptr_end - indptr_begin == 1)
+			return;
 
 	auto my_begin = out_indptr[indptr_begin];
 	auto scc_nnz_size = out_indptr[indptr_end] - my_begin;
@@ -806,19 +806,73 @@ __global__ void nway_hstack_indices_and_data_trivial_L(
 	}
 }
 
+struct LU_part_t
+{
+	d_idxvec L_indptr, L_indices, U_indptr, U_indices;
+	d_datvec L_data, U_data;
+};
 
 void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
-	for (auto nonterm_idx = 0; nonterm_idx < nonterminals_offsets_.size() - 1; nonterm_idx++)
-	{
-		d_idxvec L_indptr, L_indices, U_indptr, U_indices;
-		d_datvec L_data, U_data;
+	index_t n = nonterminals_offsets_.size() - 1;
 
-		solve_single_nonterm(nonterm_idx, indptr, rows, data, L_indptr, L_indices, L_data, U_indptr, U_indices, U_data);
+	d_idxvec L_indptr(n + 1), L_indices, U_indptr(n + 1), U_indices;
+	d_datvec L_data, U_data;
+
+	{
+		thrust::device_vector<LU_part_t> lu_parts(n);
+		thrust::device_vector<index_t*> L_indptr_vec(n), L_indices_vec(n), U_indptr_vec(n), U_indices_vec(n);
+		thrust::device_vector<real_t*> L_data_vec(n), U_data_vec(n);
+
+		for (auto nonterm_idx = 0; nonterm_idx < nonterminals_offsets_.size() - 1; nonterm_idx++)
+		{
+			LU_part_t p;
+
+			solve_single_nonterm(nonterm_idx, indptr, rows, data, p.L_indptr, p.L_indices, p.L_data, p.U_indptr,
+								 p.U_indices, p.U_data);
+
+			L_indptr_vec[nonterm_idx] = p.L_indptr.data().get();
+			L_indices_vec[nonterm_idx] = p.L_indices.data().get();
+			L_data_vec[nonterm_idx] = p.L_data.data().get();
+
+			U_indptr_vec[nonterm_idx] = p.U_indptr.data().get();
+			U_indices_vec[nonterm_idx] = p.U_indices.data().get();
+			U_data_vec[nonterm_idx] = p.U_data.data().get();
+		}
+
+		d_idxvec offsets = nonterminals_offsets_;
+		thrust::transform(offsets.begin(), offsets.end(), offsets.begin(),
+						  [off = nonterminals_offsets_.front()] __device__(index_t x) { return x - off; });
+
+		auto blocksize = 256;
+		auto gridsize = (n + blocksize - 1) / blocksize;
+
+		nway_hstack_indptr<false><<<gridsize, blocksize>>>(n, indptr.data().get(), offsets.data().get(),
+														   U_indptr_vec.data().get(), U_indptr.data().get());
+		nway_hstack_indptr<true><<<gridsize, blocksize>>>(n, indptr.data().get(), offsets.data().get(),
+														  L_indptr_vec.data().get(), L_indptr.data().get());
+
+		index_t U_nnz = U_indptr.back();
+		index_t L_nnz = L_indptr.back();
+
+		U_indices.resize(U_nnz);
+		U_data.resize(U_nnz);
+
+		L_indices.resize(L_nnz);
+		L_data.resize(L_nnz);
+
+		nway_hstack_indices_and_data<false><<<gridsize, blocksize>>>(
+			n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
+			U_indices_vec.data().get(), U_data_vec.data().get(), U_indices.data().get(), U_data.data().get());
+
+		nway_hstack_indices_and_data<true><<<gridsize, blocksize>>>(
+			n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
+			L_indices_vec.data().get(), L_data_vec.data().get(), L_indices.data().get(), L_data.data().get());
 	}
+
 
 
 	thrust::host_vector<index_t> h_indptr = indptr;
@@ -1021,13 +1075,19 @@ void solver::solve_nonterminal_part()
 	nb_rows.resize(n_nnz);
 	nb_data_csc.resize(n_nnz);
 
+	d_idxvec N_indptr_csr, N_indices_csr;
+	thrust::device_vector<float> N_data_csr;
+
+	csr_csc_switch(nb_indptr_csc.data().get(), nb_rows.data().get(), nb_data_csc.data().get(), nonterminal_vertices_n,
+				   nonterminal_vertices_n, n_nnz, N_indptr_csr, N_indices_csr, N_data_csr);
+
 	d_idxvec X_indptr, X_indices;
 	thrust::device_vector<float> X_data;
 
 	std::cout << "Trisystem begin" << std::endl;
 
-	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
-				 A_indices, A_data, X_indptr, X_indices, X_data);
+	solve_system(N_indptr_csr, N_indices_csr, N_data_csr, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
+				 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
 
 
 	nonterm_indptr.resize(U_indptr_csr.size());
