@@ -884,12 +884,12 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		std::cout << "hstack2" << std::endl;
 
 		nway_hstack_indices_and_data<false>
-			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
 									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
 									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
 
 		nway_hstack_indices_and_data<true>
-			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
 									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
 									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
 
