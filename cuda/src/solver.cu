@@ -807,8 +807,8 @@ struct LU_part_t
 	d_datvec L_data, U_data;
 };
 
-void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n,
-						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
+void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
+						  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
@@ -822,19 +822,22 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
 
 	// step 1: allocate buffer
-	cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(), rows.data().get(), &pBufferSizeInBytes);
+	CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
+												  rows.data().get(), &pBufferSizeInBytes));
 	thrust::device_vector<char> buffer(pBufferSizeInBytes);
 
 	// step 2: setup permutation vector P to identity
 	d_idxvec P(nnz);
-	cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get());
+	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
 
 	// step 3: sort CSR format
-	cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(), rows.data().get(), P.data().get(), buffer.data().get());
+	CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
+									rows.data().get(), P.data().get(), buffer.data().get()));
 
 	// step 4: gather sorted csrVal
 	d_datvec sorted_data(data.size());
-	thrust::copy(thrust::make_permutation_iterator(data.begin(), P.begin()), thrust::make_permutation_iterator(data.begin(), P.end()), sorted_data.begin());
+	thrust::copy(thrust::make_permutation_iterator(data.begin(), P.begin()),
+				 thrust::make_permutation_iterator(data.begin(), P.end()), sorted_data.begin());
 	data = std::move(sorted_data);
 
 	index_t nt_n = nonterminals_offsets_.size() - 1;
@@ -910,13 +913,13 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 		nway_hstack_indices_and_data<false>
 			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
-									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
+										  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
+										  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
 
 		nway_hstack_indices_and_data<true>
 			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
-									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
+										  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
+										  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
 
 		nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
 			nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
@@ -969,8 +972,6 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 		for (size_t i = 0; i < nt_n; i++)
 		{
-
-
 			float pivot;
 			index_t begin = indptr[i];
 			index_t end = indptr[i + 1];
@@ -1224,28 +1225,17 @@ void solver::solve_nonterminal_part()
 
 	nb_indptr_csr[nonterminal_vertices_n] = n_nnz;
 
-	std::cout << "NB switch begin" << std::endl;
-
-	csr_csc_switch(nb_indptr_csr.data().get(), nb_cols.data().get(), nb_data_csr.data().get(), nonterminal_vertices_n,
-				   nonterminal_vertices_n, n_nnz, nb_indptr_csc, nb_rows, nb_data_csc);
-
-	nb_indptr_csc.resize(nonterminal_vertices_n + 1);
-	nb_rows.resize(n_nnz);
-	nb_data_csc.resize(n_nnz);
-
-	d_idxvec N_indptr_csr, N_indices_csr;
-	thrust::device_vector<float> N_data_csr;
-
-	csr_csc_switch(nb_indptr_csc.data().get(), nb_rows.data().get(), nb_data_csc.data().get(), nonterminal_vertices_n,
-				   nonterminal_vertices_n, n_nnz, N_indptr_csr, N_indices_csr, N_data_csr);
+	nb_indptr_csr.resize(nonterminal_vertices_n + 1);
+	nb_cols.resize(n_nnz);
+	nb_data_csr.resize(n_nnz);
 
 	d_idxvec X_indptr, X_indices;
 	thrust::device_vector<float> X_data;
 
 	std::cout << "Trisystem begin" << std::endl;
 
-	solve_system(N_indptr_csr, N_indices_csr, N_data_csr, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
-				 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
+	solve_system(nb_indptr_csr, nb_cols, nb_data_csr, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
+				 A_indices, A_data, X_indptr, X_indices, X_data);
 
 
 	nonterm_indptr.resize(U_indptr_csr.size());
