@@ -170,6 +170,9 @@ void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_cou
 	meta_cols.resize(thrust::get<0>(meta_end.get_iterator_tuple()) - meta_cols.begin());
 	meta_rows.resize(meta_cols.size());
 
+	std::cout << "edges count " << edges_count_ << std::endl;
+	std::cout << "metaedges count " << meta_rows.size() << std::endl;
+
 	meta_indices = std::move(meta_rows);
 
 	transition_table::coo2csc(context_.cusparse_handle, sccs_count, meta_indices, meta_cols, meta_indptr);
@@ -213,6 +216,7 @@ void transition_graph::find_terminals()
 	}
 
 	std::cout << "sccs size " << sccs_count << std::endl;
+	std::cout << "sccs last " << scc_ids.back() << std::endl;
 
 	if (sccs_count == 1)
 	{
