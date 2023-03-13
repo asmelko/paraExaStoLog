@@ -872,11 +872,37 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	d_datvec U_data = hU_data;
 
 
+	size_t pBufferSize_L;
+	size_t pBufferSize_U;
+	void* pBufferU;
+	void* pBufferL;
+
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
+		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
+		L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, &pBufferSize_L));
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
+		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+		U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U, &pBufferSize_U));
+
+	cudaMalloc((void**)&pBufferL, pBufferSize_L);
+	cudaMalloc((void**)&pBufferU, pBufferSize_U);
+
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(
+		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
+		L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, policy_L, pBufferL));
+
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(
+		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+		U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U, policy_U, pBufferU));
+
+
+
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 	thrust::host_vector<index_t> hb_indices = b_indices;
 
 
-	thrust::host_vector<float> x_vec(cols);
+	thrust::device_vector<float> x_vec(cols);
+	d_datvec z_vec(cols);
 
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
@@ -894,12 +920,19 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 		std::cout << ".";
 
-		CHECK_CUSOLVER(
-			cusolverSpScsrluSolveHost(context_.cusolver_handle, n, b_vec.data(), x_vec.data(), info, buffer.data()));
+		d_datvec db_vec = b_vec;
 
-		thrust::device_vector<float> dx_vec = x_vec;
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+											 CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
+											 L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1,
+											 info_L, db_vec.data().get(), z_vec.data().get(), policy_L, pBufferL));
 
-		auto x_nnz = thrust::count_if(dx_vec.begin(), dx_vec.end(), [] __device__(float x) { return !is_zero(x); });
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+											 CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+											 U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1,
+											 info_U, z_vec.data().get(), x_vec.data().get(), policy_U, pBufferU));
+
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
@@ -907,8 +940,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 		hx_indptr[b_idx + 1] = hx_indptr[b_idx] + x_nnz;
 
-		thrust::copy_if(thrust::make_zip_iterator(dx_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
-						thrust::make_zip_iterator(dx_vec.end(), thrust::make_counting_iterator<index_t>(dx_vec.size())),
+		thrust::copy_if(thrust::make_zip_iterator(x_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
+						thrust::make_zip_iterator(x_vec.end(), thrust::make_counting_iterator<index_t>(x_vec.size())),
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
 						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
@@ -1020,8 +1053,8 @@ void solver::solve_nonterminal_part()
 
 	std::cout << "Trisystem begin" << std::endl;
 
-	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz,
-				 A_indptr, A_indices, A_data, X_indptr, X_indices, X_data);
+	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
+				 A_indices, A_data, X_indptr, X_indices, X_data);
 
 
 	nonterm_indptr.resize(U_indptr_csr.size());
