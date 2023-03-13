@@ -816,7 +816,6 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 	for (size_t i = 0; i < n + 1; i++)
 	{
-		float pivot;
 		index_t begin = indptr[i];
 		index_t end = indptr[i + 1];
 		for (auto j = begin; j < end; j++)
@@ -824,7 +823,7 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 			if (rows[j] < i)
 			{
 				std::cout << "bad at Lindices " << i << " what: " << rows[j] << std::endl;
-				return;
+				break;
 			}
 		}
 	}
