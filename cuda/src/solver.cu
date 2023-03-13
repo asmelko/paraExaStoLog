@@ -1238,12 +1238,15 @@ void solver::solve_nonterminal_part()
 	nb_cols.resize(n_nnz);
 	nb_data_csr.resize(n_nnz);
 
+	csr_csc_switch(nb_indptr_csr.data().get(), nb_cols.data().get(), nb_data_csr.data().get(), nonterminal_vertices_n,
+				   nonterminal_vertices_n, n_nnz, nb_indptr_csc, nb_rows, nb_data_csc);
+
 	d_idxvec X_indptr, X_indices;
 	thrust::device_vector<float> X_data;
 
 	std::cout << "Trisystem begin" << std::endl;
 
-	solve_system(nb_indptr_csr, nb_cols, nb_data_csr, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
+	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
 				 A_indices, A_data, X_indptr, X_indices, X_data);
 
 
