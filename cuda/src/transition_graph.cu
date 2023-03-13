@@ -149,6 +149,7 @@ void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices,
 
 	// print("20 topo ordering ", ordering, 20);
 	// print("20 topo sizes    ", sizes, 20);
+	print("20 topo labels    ", labels, 20);
 }
 
 void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_count, d_idxvec& meta_indptr,
