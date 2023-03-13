@@ -871,9 +871,14 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	d_idxvec U_indices = hU_cols;
 	d_datvec U_data = hU_data;
 
+	bsrsv2Info_t info_L = 0;
+	bsrsv2Info_t info_U = 0;
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_L));
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
-	size_t pBufferSize_L;
-	size_t pBufferSize_U;
+
+	int pBufferSize_L;
+	int pBufferSize_U;
 	void* pBufferU;
 	void* pBufferL;
 
@@ -887,13 +892,15 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(
-		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
-		L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, policy_L, pBufferL));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+											CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
+											L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1,
+											info_L, CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferL));
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(
-		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
-		U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U, policy_U, pBufferU));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+											CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+											U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1,
+											info_U, CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferU));
 
 
 
@@ -909,6 +916,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 	std::cout << "Trisystem solve begin" << std::endl;
 
+	float alpha = 1.f;
+
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
@@ -922,15 +931,15 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 
 		d_datvec db_vec = b_vec;
 
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
-											 CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
-											 L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1,
-											 info_L, db_vec.data().get(), z_vec.data().get(), policy_L, pBufferL));
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(
+			context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), &alpha,
+			descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, db_vec.data().get(),
+			z_vec.data().get(), CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferL));
 
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
-											 CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
-											 U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1,
-											 info_U, z_vec.data().get(), x_vec.data().get(), policy_U, pBufferU));
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(
+			context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(),&alpha,
+			descr_U, U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U, z_vec.data().get(),
+			x_vec.data().get(), CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferU));
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
 
