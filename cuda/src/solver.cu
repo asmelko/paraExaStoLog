@@ -882,6 +882,9 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	void* pBufferU;
 	void* pBufferL;
 
+	std::cout << "Ldata size " << L_data.size() << std::endl;
+	std::cout << "Lindptr size " << L_indptr.size() << std::endl;
+
 	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
 		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
 		L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, &pBufferSize_L));
