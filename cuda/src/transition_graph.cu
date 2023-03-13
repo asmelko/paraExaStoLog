@@ -239,8 +239,8 @@ void transition_graph::find_terminals()
 
 		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
 		// or not, because we will need to transpose matrix at one point anyway
-		thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
-		thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
+		// thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
+		// thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
 
 		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
 
