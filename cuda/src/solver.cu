@@ -807,11 +807,36 @@ struct LU_part_t
 	d_datvec L_data, U_data;
 };
 
-void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n,
 						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
+	size_t pBufferSizeInBytes = 0;
+
+	cusparseMatDescr_t descr_N = 0;
+
+
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
+
+	// step 1: allocate buffer
+	cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(), rows.data().get(), &pBufferSizeInBytes);
+	thrust::device_vector<char> buffer(pBufferSizeInBytes);
+
+	// step 2: setup permutation vector P to identity
+	d_idxvec P(nnz);
+	cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get());
+
+	// step 3: sort CSR format
+	cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(), rows.data().get(), P.data().get(), buffer.data().get());
+
+	// step 4: gather sorted csrVal
+	d_datvec sorted_data(data.size());
+	thrust::copy(thrust::make_permutation_iterator(data.begin(), P.begin()), thrust::make_permutation_iterator(data.begin(), P.end()), sorted_data.begin());
+	data = std::move(sorted_data);
+
 	index_t nt_n = nonterminals_offsets_.size() - 1;
 
 	// print("N indptr  ", indptr);
