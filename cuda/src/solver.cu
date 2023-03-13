@@ -1047,24 +1047,17 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// 	// 		std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
 	// 	// }
 	// }
-	cusparseMatDescr_t descr_L = 0;
-	cusparseMatDescr_t descr_U = 0;
-	bsrsv2Info_t info_L = 0;
-	bsrsv2Info_t info_U = 0;
-	int pBufferSize_L;
-	int pBufferSize_U;
-	void* pBufferL = 0;
-	void* pBufferU = 0;
-	const float alpha = 1.;
-	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
-	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
-	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_TRANSPOSE;
-	const cusparseOperation_t trans_U = CUSPARSE_OPERATION_NON_TRANSPOSE;
+
+	cusparseMatDescr_t descr, descr_L, descr_U;
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
 	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
 	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_UPPER));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
 
 	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
@@ -1072,6 +1065,12 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
+
+
+	bsrsv2Info_t info_L = 0;
+	bsrsv2Info_t info_U = 0;
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_L));
+	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
 
 	int pBufferSize_L;
@@ -1179,7 +1178,6 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
-	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
 }
 
 void solver::solve_nonterminal_part()
