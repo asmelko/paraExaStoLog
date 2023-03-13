@@ -822,7 +822,10 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 		for (auto j = begin; j < end; j++)
 		{
 			if (rows[j] < i)
+			{
 				std::cout << "bad at Lindices " << i << " what: " << rows[j] << std::endl;
+				return;
+			}
 		}
 	}
 	cusparseMatDescr_t descr_N = 0;
