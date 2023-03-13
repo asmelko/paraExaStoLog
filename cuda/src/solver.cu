@@ -233,7 +233,6 @@ void solver::solve_terminal_part()
 	{
 		size_t scc_size = terminals_offsets_[terminal_scc_idx] - terminals_offsets_[terminal_scc_idx - 1];
 
-		std::cout << "scc_size for det " << scc_size << std::endl;
 
 		if (scc_size == 1)
 		{
@@ -248,6 +247,8 @@ void solver::solve_terminal_part()
 								  scc_indptr, scc_rows, scc_data);
 
 		d_idxvec scc_cols(nnz);
+
+		std::cout << "DET: scc_size " << scc_size << " nnz " << nnz << std::endl;
 
 		// this decompresses indptr into cols
 		CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, scc_indptr.data().get(), nnz, scc_size,
@@ -298,6 +299,8 @@ void solver::solve_terminal_part()
 			thrust::copy(scc_data.begin(), scc_data.begin() + h_scc_indptr[minor_i], minor_data.begin());
 			thrust::copy(scc_data.begin() + h_scc_indptr[minor_i + 1], scc_data.end(),
 						 minor_data.begin() + h_scc_indptr[minor_i]);
+
+			std::cout << "minor" << minor_i << std::endl;
 
 			h_minors[minor_i] = std::abs(
 				determinant(minor_indptr, minor_rows, minor_data, scc_indptr.size() - 2, scc_data.size() - offset));
