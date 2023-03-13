@@ -867,6 +867,9 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		index_t U_nnz = U_indptr.back();
 		index_t L_nnz = L_indptr.back();
 
+		std::cout << "U_nnz " << U_nnz << std::endl;
+		std::cout << "L_nnz " << L_nnz << std::endl;
+
 		// print("U_indptr ", U_indptr);
 		// print("L_indptr ", L_indptr);
 
