@@ -233,6 +233,8 @@ void solver::solve_terminal_part()
 	{
 		size_t scc_size = terminals_offsets_[terminal_scc_idx] - terminals_offsets_[terminal_scc_idx - 1];
 
+		std::cout << "scc_size for det " << scc_size << std::endl;
+
 		if (scc_size == 1)
 		{
 			term_data[terminals_offsets_[terminal_scc_idx - 1]] = 1;
