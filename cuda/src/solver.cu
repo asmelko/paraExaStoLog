@@ -975,7 +975,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			float pivot;
 			index_t begin = indptr[i];
 			index_t end = indptr[i + 1];
-			index_t curr_idx = 0;
+			index_t curr_idx = -1;
 			index_t piv_idx;
 			for (auto j = begin; j < end; j++)
 			{
@@ -1001,8 +1001,13 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			}
 		}
 
-		print("10 L_indptr  ", L_indptr, 10);
-		print("10 L_indices ", L_indices, 10);
+		print("10 L_indptr  ", L_indptr, 20);
+		print("10 L_indices ", L_indices, 20);
+		print("10 L_data    ", L_data, 20);
+
+		print("10 U_indptr  ", U_indptr, 20);
+		print("10 U_indices ", U_indices, 20);
+		print("10 U_data    ", U_data, 20);
 
 		// for (size_t i = 0; i < nt_n; i++)
 		// {
