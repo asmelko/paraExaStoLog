@@ -856,8 +856,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// print("N indices ", rows);
 	// print("N data    ", data);
 
-	d_idxvec L_indptr(n + 1), L_indices, U_indptr(n + 1), U_indices;
-	d_datvec L_data, U_data;
+	d_idxvec L_indptr(0), L_indices(0), U_indptr = indptr, U_indices = rows;
+	d_datvec L_data(0), U_data = data;
 
 	// {
 	// 	thrust::device_vector<LU_part_t> lu_parts(nt_n);
@@ -1047,8 +1047,6 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// 	// 		std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
 	// 	// }
 	// }
-
-
 	cusparseMatDescr_t descr_L = 0;
 	cusparseMatDescr_t descr_U = 0;
 	bsrsv2Info_t info_L = 0;
@@ -1075,66 +1073,48 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
 	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
 
-	// step 2: create a empty info structure
-	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_L));
-	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
-	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	// CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
-	// 										  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
-	// 										  L_indices.data().get(), 1, info_L, &pBufferSize_L));
-	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
-											  descr_U, data.data().get(), indptr.data().get(), rows.data().get(), 1,
-											  info_U, &pBufferSize_U));
+	int pBufferSize_L;
+	int pBufferSize_U;
+	void* pBufferU;
+	void* pBufferL;
 
-	// cudaMalloc((void**)&pBufferL, pBufferSize_L);
+	std::cout << "Ldata size " << L_data.size() << std::endl;
+	std::cout << "Lindptr size " << L_indptr.size() << std::endl;
+
+	std::cout << "Udata size " << L_data.size() << std::endl;
+	std::cout << "Uindptr size " << L_indptr.size() << std::endl;
+
+	print("U_indptr  ", U_indptr, 30);
+	print("U_indices ", U_indices, 30);
+	print("U_data    ", U_data, 30);
+
+
+	print("L_indptr  ", L_indptr, 30);
+	print("L_indices ", L_indices, 30);
+	print("L_data    ", L_data, 30);
+
+	if (L_data.size())
+		CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
+			context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(),
+			descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L, &pBufferSize_L));
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
+		context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+		U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U, &pBufferSize_U));
+
+	cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
-	// CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
-	// L_data.size(), 										descr_L, L_data.data().get(), L_indptr.data().get(),
-	// L_indices.data().get(), 1, info_L, policy_L, pBufferL));
+	if (L_data.size())
+		CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+												CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(), descr_L,
+												L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1,
+												info_L, CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferL));
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
-											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U,
-											policy_U, pBufferU));
-
-
-	cusparseSpSVDescr_t sv_descr;
-	cusparseSpMatDescr_t matA;
-	cusparseDnVecDescr_t vecX, vecB;
-	size_t bufferSize = 0;
-
-	thrust::device_vector<float> x_vec(cols);
-	thrust::device_vector<float> b_vec(cols);
-
-	CHECK_CUSPARSE(cusparseSpSV_createDescr(&sv_descr));
-
-	// Create sparse matrix A in CSR format
-	CHECK_CUSPARSE(cusparseCreateCsr(&matA, n, n, nnz, indptr.data().get(), rows.data().get(), data.data().get(),
-									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-
-
-	cusparseFillMode_t fillmode = CUSPARSE_FILL_MODE_UPPER;
-	CHECK_CUSPARSE(cusparseSpMatSetAttribute(matA, CUSPARSE_SPMAT_FILL_MODE, &fillmode, sizeof(fillmode)));
-	// Specify Unit|Non-Unit diagonal type.
-	cusparseDiagType_t diagtype = CUSPARSE_DIAG_TYPE_NON_UNIT;
-	CHECK_CUSPARSE(cusparseSpMatSetAttribute(matA, CUSPARSE_SPMAT_DIAG_TYPE, &diagtype, sizeof(diagtype)));
-
-
-	// Create dense vector X
-	CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, n, x_vec.data().get(), CUDA_R_32F));
-	// Create dense vector y
-	CHECK_CUSPARSE(cusparseCreateDnVec(&vecB, n, b_vec.data().get(), CUDA_R_32F));
-
-	CHECK_CUSPARSE(cusparseSpSV_bufferSize(
-		context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
-		CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, &bufferSize));
-
-	thrust::device_vector<char> buffer_sv(bufferSize);
-
-	CHECK_CUSPARSE(cusparseSpSV_analysis(
-		context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
-		CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, buffer_sv.data().get()));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW,
+											CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(), descr_U,
+											U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1,
+											info_U, CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferU));
 
 
 
@@ -1142,48 +1122,43 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	thrust::host_vector<index_t> hb_indices = b_indices;
 
 
+	thrust::device_vector<float> x_vec(cols);
+	d_datvec z_vec(cols);
 
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
 
-	std::cout << "solve begin" << std::endl;
+	std::cout << "Trisystem solve begin" << std::endl;
+
+	float alpha = 1.f;
 
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		thrust::for_each(b_vec.begin(), b_vec.end(), [] __device__(float& x) { x = 0; });
+		thrust::host_vector<float> b_vec(n, 0.f);
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
-					 thrust::make_permutation_iterator(b_vec.begin(), b_indices.begin() + start));
+					 thrust::make_permutation_iterator(b_vec.begin(), hb_indices.begin() + start));
 
-		// print("b ", b_vec);
+		std::cout << ".";
 
-		// // step 6: solve L*z = x
-		// CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
-		// 									 L_data.size(), &alpha, descr_L, L_data.data().get(), L_indptr.data().get(),
-		// 									 L_indices.data().get(), 1, info_L, b_vec.data().get(), z_vec.data().get(),
-		// 									 policy_L, pBufferL));
+		d_datvec db_vec = b_vec;
 
-		// print("z ", z_vec);
+		if (L_data.size())
+			CHECK_CUSPARSE(cusparseSbsrsv2_solve(
+				context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(),
+				&alpha, descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(), 1, info_L,
+				db_vec.data().get(), z_vec.data().get(), CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferL));
+		else
+			z_vec = db_vec;
 
-		// CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
-		// &alpha, 									 descr_U, data.data().get(), indptr.data().get(), rows.data().get(),
-		// 1, info_U, b_vec.data().get(), x_vec.data().get(), policy_U, pBufferU));
-
-
-		CHECK_CUSPARSE(cusparseSpSV_analysis(
-			context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
-			CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, buffer_sv.data().get()));
-
-		CHECK_CUSPARSE(cusparseSpSV_solve(context_.cusparse_handle,
-										  cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB,
-										  vecX, CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr));
-
+		CHECK_CUSPARSE(cusparseSbsrsv2_solve(
+			context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, U_data.size(),
+			&alpha, descr_U, U_data.data().get(), U_indptr.data().get(), U_indices.data().get(), 1, info_U,
+			z_vec.data().get(), x_vec.data().get(), CUSPARSE_SOLVE_POLICY_NO_LEVEL, pBufferU));
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
-
-		// print("x ", x_vec);
 
 		auto size_before = x_indices.size();
 		x_indices.resize(x_indices.size() + x_nnz);
@@ -1196,16 +1171,15 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 						thrust::make_zip_iterator(x_data.begin() + size_before, x_indices.begin() + size_before),
 						[] __device__(thrust::tuple<float, index_t> x) { return !is_zero(thrust::get<0>(x)); });
 	}
-	std::cout << "solve end" << std::endl;
+	std::cout << "Trisystem solve end" << std::endl;
 
 
 	x_indptr = hx_indptr;
 
-	// step 6: free resources
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
-	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_L));
-	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_U));
+	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
 }
 
 void solver::solve_nonterminal_part()
