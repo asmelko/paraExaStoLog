@@ -848,194 +848,194 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	d_idxvec L_indptr(n + 1), L_indices, U_indptr(n + 1), U_indices;
 	d_datvec L_data, U_data;
 
-	{
-		thrust::device_vector<LU_part_t> lu_parts(nt_n);
-		thrust::device_vector<index_t*> L_indptr_vec(nt_n), L_indices_vec(nt_n), U_indptr_vec(nt_n),
-			U_indices_vec(nt_n);
-		thrust::device_vector<real_t*> L_data_vec(nt_n), U_data_vec(nt_n);
+	// {
+	// 	thrust::device_vector<LU_part_t> lu_parts(nt_n);
+	// 	thrust::device_vector<index_t*> L_indptr_vec(nt_n), L_indices_vec(nt_n), U_indptr_vec(nt_n),
+	// 		U_indices_vec(nt_n);
+	// 	thrust::device_vector<real_t*> L_data_vec(nt_n), U_data_vec(nt_n);
 
-		std::cout << "foreach" << std::endl;
+	// 	std::cout << "foreach" << std::endl;
 
-		thrust::for_each(thrust::host, thrust::make_counting_iterator(0), thrust::make_counting_iterator(nt_n),
-						 [&](index_t nonterm_idx) {
-							 LU_part_t p;
+	// 	thrust::for_each(thrust::host, thrust::make_counting_iterator(0), thrust::make_counting_iterator(nt_n),
+	// 					 [&](index_t nonterm_idx) {
+	// 						 LU_part_t p;
 
-							 solve_single_nonterm(nonterm_idx, indptr, rows, data, p.L_indptr, p.L_indices, p.L_data,
-												  p.U_indptr, p.U_indices, p.U_data);
+	// 						 solve_single_nonterm(nonterm_idx, indptr, rows, data, p.L_indptr, p.L_indices, p.L_data,
+	// 											  p.U_indptr, p.U_indices, p.U_data);
 
-							 L_indptr_vec[nonterm_idx] = p.L_indptr.data().get();
-							 L_indices_vec[nonterm_idx] = p.L_indices.data().get();
-							 L_data_vec[nonterm_idx] = p.L_data.data().get();
+	// 						 L_indptr_vec[nonterm_idx] = p.L_indptr.data().get();
+	// 						 L_indices_vec[nonterm_idx] = p.L_indices.data().get();
+	// 						 L_data_vec[nonterm_idx] = p.L_data.data().get();
 
-							 U_indptr_vec[nonterm_idx] = p.U_indptr.data().get();
-							 U_indices_vec[nonterm_idx] = p.U_indices.data().get();
-							 U_data_vec[nonterm_idx] = p.U_data.data().get();
-						 });
+	// 						 U_indptr_vec[nonterm_idx] = p.U_indptr.data().get();
+	// 						 U_indices_vec[nonterm_idx] = p.U_indices.data().get();
+	// 						 U_data_vec[nonterm_idx] = p.U_data.data().get();
+	// 					 });
 
-		d_idxvec offsets = nonterminals_offsets_;
-		thrust::transform(offsets.begin(), offsets.end(), offsets.begin(),
-						  [off = nonterminals_offsets_.front()] __device__(index_t x) { return x - off; });
+	// 	d_idxvec offsets = nonterminals_offsets_;
+	// 	thrust::transform(offsets.begin(), offsets.end(), offsets.begin(),
+	// 					  [off = nonterminals_offsets_.front()] __device__(index_t x) { return x - off; });
 
-		auto blocksize = 256;
-		auto gridsize = (nt_n + blocksize - 1) / blocksize;
+	// 	auto blocksize = 256;
+	// 	auto gridsize = (nt_n + blocksize - 1) / blocksize;
 
-		std::cout << "hstack" << std::endl;
+	// 	std::cout << "hstack" << std::endl;
 
-		nway_hstack_indptr<false><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
-														   U_indptr_vec.data().get(), U_indptr.data().get());
-		nway_hstack_indptr<true><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
-														  L_indptr_vec.data().get(), L_indptr.data().get());
+	// 	nway_hstack_indptr<false><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
+	// 													   U_indptr_vec.data().get(), U_indptr.data().get());
+	// 	nway_hstack_indptr<true><<<gridsize, blocksize>>>(nt_n, indptr.data().get(), offsets.data().get(),
+	// 													  L_indptr_vec.data().get(), L_indptr.data().get());
 
-		CHECK_CUDA(cudaDeviceSynchronize());
+	// 	CHECK_CUDA(cudaDeviceSynchronize());
 
-		thrust::inclusive_scan(U_indptr.begin(), U_indptr.end(), U_indptr.begin());
-		thrust::inclusive_scan(L_indptr.begin(), L_indptr.end(), L_indptr.begin());
+	// 	thrust::inclusive_scan(U_indptr.begin(), U_indptr.end(), U_indptr.begin());
+	// 	thrust::inclusive_scan(L_indptr.begin(), L_indptr.end(), L_indptr.begin());
 
-		index_t U_nnz = U_indptr.back();
-		index_t L_nnz = L_indptr.back();
+	// 	index_t U_nnz = U_indptr.back();
+	// 	index_t L_nnz = L_indptr.back();
 
-		std::cout << "U_nnz " << U_nnz << std::endl;
-		std::cout << "L_nnz " << L_nnz << std::endl;
-
-
-
-		// print("U_indptr ", U_indptr);
-		// print("L_indptr ", L_indptr);
-
-		U_indices.resize(U_nnz);
-		U_data.resize(U_nnz);
-
-		L_indices.resize(L_nnz);
-		L_data.resize(L_nnz);
-
-		std::cout << "hstack2" << std::endl;
-
-		nway_hstack_indices_and_data<false>
-			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-										  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
-										  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
-
-		nway_hstack_indices_and_data<true>
-			<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-										  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
-										  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
-
-		nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
-			nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
-			L_indices_vec.data().get(), L_data_vec.data().get(), L_indptr.data().get(), L_indices.data().get(),
-			L_data.data().get());
-
-		CHECK_CUDA(cudaDeviceSynchronize());
+	// 	std::cout << "U_nnz " << U_nnz << std::endl;
+	// 	std::cout << "L_nnz " << L_nnz << std::endl;
 
 
-		// print("U_indices ", U_indices);
-		// print("U_data    ", U_data);
-		// print("L_indices ", L_indices);
-		// print("L_data    ", L_data);
+
+	// 	// print("U_indptr ", U_indptr);
+	// 	// print("L_indptr ", L_indptr);
+
+	// 	U_indices.resize(U_nnz);
+	// 	U_data.resize(U_nnz);
+
+	// 	L_indices.resize(L_nnz);
+	// 	L_data.resize(L_nnz);
+
+	// 	std::cout << "hstack2" << std::endl;
+
+	// 	nway_hstack_indices_and_data<false>
+	// 		<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+	// 									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
+	// 									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
+
+	// 	nway_hstack_indices_and_data<true>
+	// 		<<<gridsize * 2, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+	// 									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
+	// 									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
+
+	// 	nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
+	// 		nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
+	// 		L_indices_vec.data().get(), L_data_vec.data().get(), L_indptr.data().get(), L_indices.data().get(),
+	// 		L_data.data().get());
+
+	// 	CHECK_CUDA(cudaDeviceSynchronize());
 
 
-		for (size_t i = 0; i < n + 1; i++)
-		{
-			if (U_indptr[i] != i)
-				std::cout << "bad at indptr " << i << " what: " << U_indptr[i] << std::endl;
-		}
+	// 	// print("U_indices ", U_indices);
+	// 	// print("U_data    ", U_data);
+	// 	// print("L_indices ", L_indices);
+	// 	// print("L_data    ", L_data);
 
 
-		for (size_t i = 0; i < U_nnz; i++)
-		{
-			if (U_indices[i] != i)
-				std::cout << "bad at indices " << i << " what: " << U_indices[i] << std::endl;
-
-			float pivot;
-			index_t N_begin = indptr[i];
-			index_t N_end = indptr[i + 1];
-			for (auto j = N_begin; j < N_end; j++)
-			{
-				pivot = data[j];
-				if (pivot < 0.f)
-				{
-					break;
-				}
-			}
-
-			if (U_data[i] != pivot)
-				std::cout << "bad at data " << i << " what: " << U_data[i] << std::endl;
-		}
-
-		for (size_t i = 0; i < n + 1; i++)
-		{
-			if (L_indptr[i] != indptr[i])
-				std::cout << "bad at Lindptr " << i << " what: " << L_indptr[i] << std::endl;
-		}
+	// 	for (size_t i = 0; i < n + 1; i++)
+	// 	{
+	// 		if (U_indptr[i] != i)
+	// 			std::cout << "bad at indptr " << i << " what: " << U_indptr[i] << std::endl;
+	// 	}
 
 
-		for (size_t i = 0; i < n; i++)
-		{
-			float pivot;
-			index_t begin = indptr[i];
-			index_t end = indptr[i + 1];
-			index_t curr_idx = -1;
-			index_t piv_idx;
-			for (auto j = begin; j < end; j++)
-			{
-				if (curr_idx >= L_indices[j])
-					std::cout << "bad order at Lindices " << j << " what: " << L_indices[j] << std::endl;
-				curr_idx = L_indices[j];
+	// 	for (size_t i = 0; i < U_nnz; i++)
+	// 	{
+	// 		if (U_indices[i] != i)
+	// 			std::cout << "bad at indices " << i << " what: " << U_indices[i] << std::endl;
 
-				if (L_indices[j] != rows[j])
-					std::cout << "bad at Lindices " << j << " what: " << L_indices[j] << std::endl;
+	// 		float pivot;
+	// 		index_t N_begin = indptr[i];
+	// 		index_t N_end = indptr[i + 1];
+	// 		for (auto j = N_begin; j < N_end; j++)
+	// 		{
+	// 			pivot = data[j];
+	// 			if (pivot < 0.f)
+	// 			{
+	// 				break;
+	// 			}
+	// 		}
 
-				pivot = data[j];
-				if (pivot < 0.f)
-				{
-					piv_idx = j;
-					break;
-				}
-			}
+	// 		if (U_data[i] != pivot)
+	// 			std::cout << "bad at data " << i << " what: " << U_data[i] << std::endl;
+	// 	}
 
-			for (auto j = begin; j < end; j++)
-			{
-				if ((L_data[j] != data[j] / pivot) || (j == piv_idx && (L_data[j] != 1)))
-					std::cout << "bad at Ldata " << j << " what: " << L_data[j] << std::endl;
-			}
-		}
-
-		print("10 L_indptr  ", L_indptr, 40);
-		print("10 L_indices ", L_indices, 40);
-		print("10 L_data    ", L_data, 40);
-
-		print("10 U_indptr  ", U_indptr, 40);
-		print("10 U_indices ", U_indices, 40);
-		print("10 U_data    ", U_data, 40);
-
-		// for (size_t i = 0; i < nt_n; i++)
-		// {
-		// 	if (L_indptr[i] != indptr[i])
-		// 		std::cout << "bad at " << i << " what: " << L_indptr[i] << std::endl;
-		// }
+	// 	for (size_t i = 0; i < n + 1; i++)
+	// 	{
+	// 		if (L_indptr[i] != indptr[i])
+	// 			std::cout << "bad at Lindptr " << i << " what: " << L_indptr[i] << std::endl;
+	// 	}
 
 
-		// for (size_t i = 0; i < L_nnz; i++)
-		// {
-		// 	if (L_indices[i] != rows[i])
-		// 		std::cout << "bad at " << i << " what: " << L_indices[i] << std::endl;
+	// 	for (size_t i = 0; i < n; i++)
+	// 	{
+	// 		float pivot;
+	// 		index_t begin = indptr[i];
+	// 		index_t end = indptr[i + 1];
+	// 		index_t curr_idx = -1;
+	// 		index_t piv_idx;
+	// 		for (auto j = begin; j < end; j++)
+	// 		{
+	// 			if (curr_idx >= L_indices[j])
+	// 				std::cout << "bad order at Lindices " << j << " what: " << L_indices[j] << std::endl;
+	// 			curr_idx = L_indices[j];
 
-		// 	float pivot;
-		// 	auto N_begin = indptr[i];
-		// 	auto N_end = indptr[i + 1];
-		// 	for (auto i = N_begin; i < N_end; i++)
-		// 	{
-		// 		pivot = data[i];
-		// 		if (pivot < 0.f)
-		// 		{
-		// 			break;
-		// 		}
-		// 	}
+	// 			if (L_indices[j] != rows[j])
+	// 				std::cout << "bad at Lindices " << j << " what: " << L_indices[j] << std::endl;
 
-		// 	if (L_data[i] != data[i] / pivot)
-		// 		std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
-		// }
-	}
+	// 			pivot = data[j];
+	// 			if (pivot < 0.f)
+	// 			{
+	// 				piv_idx = j;
+	// 				break;
+	// 			}
+	// 		}
+
+	// 		for (auto j = begin; j < end; j++)
+	// 		{
+	// 			if ((L_data[j] != data[j] / pivot) || (j == piv_idx && (L_data[j] != 1)))
+	// 				std::cout << "bad at Ldata " << j << " what: " << L_data[j] << std::endl;
+	// 		}
+	// 	}
+
+	// 	print("10 L_indptr  ", L_indptr, 40);
+	// 	print("10 L_indices ", L_indices, 40);
+	// 	print("10 L_data    ", L_data, 40);
+
+	// 	print("10 U_indptr  ", U_indptr, 40);
+	// 	print("10 U_indices ", U_indices, 40);
+	// 	print("10 U_data    ", U_data, 40);
+
+	// 	// for (size_t i = 0; i < nt_n; i++)
+	// 	// {
+	// 	// 	if (L_indptr[i] != indptr[i])
+	// 	// 		std::cout << "bad at " << i << " what: " << L_indptr[i] << std::endl;
+	// 	// }
+
+
+	// 	// for (size_t i = 0; i < L_nnz; i++)
+	// 	// {
+	// 	// 	if (L_indices[i] != rows[i])
+	// 	// 		std::cout << "bad at " << i << " what: " << L_indices[i] << std::endl;
+
+	// 	// 	float pivot;
+	// 	// 	auto N_begin = indptr[i];
+	// 	// 	auto N_end = indptr[i + 1];
+	// 	// 	for (auto i = N_begin; i < N_end; i++)
+	// 	// 	{
+	// 	// 		pivot = data[i];
+	// 	// 		if (pivot < 0.f)
+	// 	// 		{
+	// 	// 			break;
+	// 	// 		}
+	// 	// 	}
+
+	// 	// 	if (L_data[i] != data[i] / pivot)
+	// 	// 		std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
+	// 	// }
+	// }
 
 
 	cusparseMatDescr_t descr_L = 0;
@@ -1073,8 +1073,8 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 											  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
 											  L_indices.data().get(), 1, info_L, &pBufferSize_L));
 	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
-											  U_data.size(), descr_U, U_data.data().get(), U_indptr.data().get(),
-											  U_indices.data().get(), 1, info_U, &pBufferSize_U));
+											  nnz, descr_U, data.data().get(), indptr.data().get(),
+											  rows.data().get(), 1, info_U, &pBufferSize_U));
 
 	cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
@@ -1083,8 +1083,8 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 											descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(),
 											1, info_L, policy_L, pBufferL));
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, U_data.size(),
-											descr_U, U_data.data().get(), U_indptr.data().get(), U_indices.data().get(),
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
+											descr_U, data.data().get(), indptr.data().get(), rows.data().get(),
 											1, info_U, policy_U, pBufferU));
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
@@ -1110,17 +1110,17 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 		// print("b ", b_vec);
 
-		// step 6: solve L*z = x
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
-											 L_data.size(), &alpha, descr_L, L_data.data().get(), L_indptr.data().get(),
-											 L_indices.data().get(), 1, info_L, b_vec.data().get(), z_vec.data().get(),
-											 policy_L, pBufferL));
+		// // step 6: solve L*z = x
+		// CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
+		// 									 L_data.size(), &alpha, descr_L, L_data.data().get(), L_indptr.data().get(),
+		// 									 L_indices.data().get(), 1, info_L, b_vec.data().get(), z_vec.data().get(),
+		// 									 policy_L, pBufferL));
 
 		// print("z ", z_vec);
 
 		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
-											 U_data.size(), &alpha, descr_U, U_data.data().get(), U_indptr.data().get(),
-											 U_indices.data().get(), 1, info_U, z_vec.data().get(), x_vec.data().get(),
+											 nnz, &alpha, descr_U, data.data().get(), indptr.data().get(),
+											 rows.data().get(), 1, info_U, b_vec.data().get(), x_vec.data().get(),
 											 policy_U, pBufferU));
 
 
