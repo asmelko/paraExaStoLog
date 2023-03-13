@@ -870,6 +870,43 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		std::cout << "U_nnz " << U_nnz << std::endl;
 		std::cout << "L_nnz " << L_nnz << std::endl;
 
+
+
+		// print("U_indptr ", U_indptr);
+		// print("L_indptr ", L_indptr);
+
+		U_indices.resize(U_nnz);
+		U_data.resize(U_nnz);
+
+		L_indices.resize(L_nnz);
+		L_data.resize(L_nnz);
+
+		std::cout << "hstack2" << std::endl;
+
+		nway_hstack_indices_and_data<false>
+			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
+									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
+
+		nway_hstack_indices_and_data<true>
+			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
+									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
+									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
+
+		nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
+			nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
+			L_indices_vec.data().get(), L_data_vec.data().get(), L_indptr.data().get(), L_indices.data().get(),
+			L_data.data().get());
+
+		CHECK_CUDA(cudaDeviceSynchronize());
+
+
+		// print("U_indices ", U_indices);
+		// print("U_data    ", U_data);
+		// print("L_indices ", L_indices);
+		// print("L_data    ", L_data);
+
+
 		for (size_t i = 0; i < nt_n; i++)
 		{
 			if (U_indptr[i] != i)
@@ -925,40 +962,6 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 		// 	if (L_data[i] != data[i] / pivot)
 		// 		std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
 		// }
-
-		// print("U_indptr ", U_indptr);
-		// print("L_indptr ", L_indptr);
-
-		U_indices.resize(U_nnz);
-		U_data.resize(U_nnz);
-
-		L_indices.resize(L_nnz);
-		L_data.resize(L_nnz);
-
-		std::cout << "hstack2" << std::endl;
-
-		nway_hstack_indices_and_data<false>
-			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-									  offsets.data().get(), U_indices_vec.data().get(), U_data_vec.data().get(),
-									  U_indptr.data().get(), U_indices.data().get(), U_data.data().get());
-
-		nway_hstack_indices_and_data<true>
-			<<<gridsize, blocksize>>>(nt_n, indptr.data().get(), rows.data().get(), data.data().get(),
-									  offsets.data().get(), L_indices_vec.data().get(), L_data_vec.data().get(),
-									  L_indptr.data().get(), L_indices.data().get(), L_data.data().get());
-
-		nway_hstack_indices_and_data_trivial_L<<<gridsize, blocksize>>>(
-			nt_n, indptr.data().get(), rows.data().get(), data.data().get(), offsets.data().get(),
-			L_indices_vec.data().get(), L_data_vec.data().get(), L_indptr.data().get(), L_indices.data().get(),
-			L_data.data().get());
-
-		CHECK_CUDA(cudaDeviceSynchronize());
-
-
-		// print("U_indices ", U_indices);
-		// print("U_data    ", U_data);
-		// print("L_indices ", L_indices);
-		// print("L_data    ", L_data);
 	}
 
 
