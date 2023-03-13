@@ -1069,19 +1069,19 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	CHECK_CUSPARSE(cusparseCreateBsrsv2Info(&info_U));
 
 	// step 3: query how much memory used in csrilu02 and csrsv2, and allocate the buffer
-	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
-											  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
-											  L_indices.data().get(), 1, info_L, &pBufferSize_L));
+	// CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
+	// 										  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
+	// 										  L_indices.data().get(), 1, info_L, &pBufferSize_L));
 	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
 											  nnz, descr_U, data.data().get(), indptr.data().get(),
 											  rows.data().get(), 1, info_U, &pBufferSize_U));
 
-	cudaMalloc((void**)&pBufferL, pBufferSize_L);
+	// cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, L_data.size(),
-											descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(),
-											1, info_L, policy_L, pBufferL));
+	// CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, L_data.size(),
+	// 										descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(),
+	// 										1, info_L, policy_L, pBufferL));
 
 	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
 											descr_U, data.data().get(), indptr.data().get(), rows.data().get(),
