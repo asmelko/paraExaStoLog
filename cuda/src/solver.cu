@@ -807,7 +807,7 @@ struct LU_part_t
 	d_datvec L_data, U_data;
 };
 
-void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
+void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
 						  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
@@ -1072,27 +1072,65 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	// CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
 	// 										  L_data.size(), descr_L, L_data.data().get(), L_indptr.data().get(),
 	// 										  L_indices.data().get(), 1, info_L, &pBufferSize_L));
-	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
-											  nnz, descr_U, data.data().get(), indptr.data().get(),
-											  rows.data().get(), 1, info_U, &pBufferSize_U));
+	CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
+											  descr_U, data.data().get(), indptr.data().get(), rows.data().get(), 1,
+											  info_U, &pBufferSize_U));
 
 	// cudaMalloc((void**)&pBufferL, pBufferSize_L);
 	cudaMalloc((void**)&pBufferU, pBufferSize_U);
 
-	// CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n, L_data.size(),
-	// 										descr_L, L_data.data().get(), L_indptr.data().get(), L_indices.data().get(),
-	// 										1, info_L, policy_L, pBufferL));
+	// CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_L, n,
+	// L_data.size(), 										descr_L, L_data.data().get(), L_indptr.data().get(),
+	// L_indices.data().get(), 1, info_L, policy_L, pBufferL));
 
-	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
-											descr_U, data.data().get(), indptr.data().get(), rows.data().get(),
-											1, info_U, policy_U, pBufferU));
+	CHECK_CUSPARSE(cusparseSbsrsv2_analysis(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz, descr_U,
+											data.data().get(), indptr.data().get(), rows.data().get(), 1, info_U,
+											policy_U, pBufferU));
+
+
+	cusparseSpSVDescr_t sv_descr;
+	cusparseSpMatDescr_t matA;
+	cusparseDnVecDescr_t vecX, vecB;
+	size_t bufferSize = 0;
+
+	thrust::device_vector<float> x_vec(cols);
+	thrust::device_vector<float> b_vec(cols);
+
+	CHECK_CUSPARSE(cusparseSpSV_createDescr(&sv_descr));
+
+	// Create sparse matrix A in CSR format
+	CHECK_CUSPARSE(cusparseCreateCsr(&matA, n, n, nnz, indptr.data().get(), rows.data().get(), data.data().get(),
+									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+
+	cusparseFillMode_t fillmode = CUSPARSE_FILL_MODE_UPPER;
+	CHECK_CUSPARSE(cusparseSpMatSetAttribute(matA, CUSPARSE_SPMAT_FILL_MODE, &fillmode, sizeof(fillmode)));
+	// Specify Unit|Non-Unit diagonal type.
+	cusparseDiagType_t diagtype = CUSPARSE_DIAG_TYPE_NON_UNIT;
+	CHECK_CUSPARSE(cusparseSpMatSetAttribute(matA, CUSPARSE_SPMAT_DIAG_TYPE, &diagtype, sizeof(diagtype)));
+
+
+	// Create dense vector X
+	CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, n, x_vec.data().get(), CUDA_R_32F));
+	// Create dense vector y
+	CHECK_CUSPARSE(cusparseCreateDnVec(&vecB, n, b_vec.data().get(), CUDA_R_32F));
+
+	CHECK_CUSPARSE(cusparseSpSV_bufferSize(
+		context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
+		CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, &bufferSize));
+
+	thrust::device_vector<char> buffer_sv(bufferSize);
+
+	CHECK_CUSPARSE(cusparseSpSV_analysis(
+		context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
+		CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, buffer_sv.data().get()));
+
+
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 	thrust::host_vector<index_t> hb_indices = b_indices;
 
 
-	thrust::device_vector<float> x_vec(cols);
-	thrust::device_vector<float> z_vec(cols);
 
 	thrust::host_vector<index_t> hx_indptr(b_indptr.size());
 	hx_indptr[0] = 0;
@@ -1102,7 +1140,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 	for (int b_idx = 0; b_idx < b_indptr.size() - 1; b_idx++)
 	{
-		thrust::device_vector<float> b_vec(n, 0.f);
+		thrust::for_each(b_vec.begin(), b_vec.end(), [] __device__(float& x) { x = 0; });
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(b_data.begin() + start, b_data.begin() + end,
@@ -1118,10 +1156,18 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 		// print("z ", z_vec);
 
-		CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n,
-											 nnz, &alpha, descr_U, data.data().get(), indptr.data().get(),
-											 rows.data().get(), 1, info_U, b_vec.data().get(), x_vec.data().get(),
-											 policy_U, pBufferU));
+		// CHECK_CUSPARSE(cusparseSbsrsv2_solve(context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, trans_U, n, nnz,
+		// &alpha, 									 descr_U, data.data().get(), indptr.data().get(), rows.data().get(),
+		// 1, info_U, b_vec.data().get(), x_vec.data().get(), policy_U, pBufferU));
+
+
+		CHECK_CUSPARSE(cusparseSpSV_analysis(
+			context_.cusparse_handle, cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB, vecX,
+			CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr, buffer_sv.data().get()));
+
+		CHECK_CUSPARSE(cusparseSpSV_solve(context_.cusparse_handle,
+										  cusparseOperation_t::CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecB,
+										  vecX, CUDA_R_32F, cusparseSpSVAlg_t::CUSPARSE_SPSV_ALG_DEFAULT, sv_descr));
 
 
 		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return !is_zero(x); });
