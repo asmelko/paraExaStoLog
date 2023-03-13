@@ -1037,8 +1037,8 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	void* pBufferL = 0;
 	void* pBufferU = 0;
 	const float alpha = 1.;
-	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
-	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
+	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
+	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_NO_LEVEL;
 	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_TRANSPOSE;
 	const cusparseOperation_t trans_U = CUSPARSE_OPERATION_NON_TRANSPOSE;
 
