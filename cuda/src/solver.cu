@@ -814,7 +814,7 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 {
 	size_t pBufferSizeInBytes = 0;
 
-	for (size_t i = 0; i < n; i++)
+	for (size_t i = 0; i < n + 1; i++)
 	{
 		float pivot;
 		index_t begin = indptr[i];
