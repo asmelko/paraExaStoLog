@@ -898,6 +898,33 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 				std::cout << "bad at " << i << " what: " << U_data[i] << std::endl;
 		}
 
+		for (size_t i = 0; i < nt_n; i++)
+		{
+			if (L_indptr[i] != indptr[i])
+				std::cout << "bad at " << i << " what: " << L_indptr[i] << std::endl;
+		}
+
+
+		for (size_t i = 0; i < U_nnz; i++)
+		{
+			if (L_indices[i] != rows[i])
+				std::cout << "bad at " << i << " what: " << L_indices[i] << std::endl;
+
+			float pivot;
+			auto N_begin = indptr[i];
+			auto N_end = indptr[i + 1];
+			for (auto i = N_begin; i < N_end; i++)
+			{
+				pivot = data[i];
+				if (pivot < 0.f)
+				{
+					break;
+				}
+			}
+
+			if (L_data[i] != data[i] / pivot)
+				std::cout << "bad at " << i << " what: " << L_data[i] << std::endl;
+		}
 
 		// print("U_indptr ", U_indptr);
 		// print("L_indptr ", L_indptr);
