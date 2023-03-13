@@ -26,7 +26,7 @@ __global__ void topological_labelling(index_t n, const index_t* __restrict__ ind
 
 	for (auto i = begin; i < end; i++)
 	{
-		auto l = labels[indices[begin]];
+		auto l = labels[indices[i]];
 		if (l == 0 || l == current_label) // not labelled or labelled in this round
 			return;
 	}
