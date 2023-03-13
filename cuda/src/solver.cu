@@ -1000,13 +1000,13 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			}
 		}
 
-		print("10 L_indptr  ", L_indptr, 20);
-		print("10 L_indices ", L_indices, 20);
-		print("10 L_data    ", L_data, 20);
+		print("10 L_indptr  ", L_indptr, 40);
+		print("10 L_indices ", L_indices, 40);
+		print("10 L_data    ", L_data, 40);
 
-		print("10 U_indptr  ", U_indptr, 20);
-		print("10 U_indices ", U_indices, 20);
-		print("10 U_data    ", U_data, 20);
+		print("10 U_indptr  ", U_indptr, 40);
+		print("10 U_indices ", U_indices, 40);
+		print("10 U_data    ", U_data, 40);
 
 		// for (size_t i = 0; i < nt_n; i++)
 		// {
