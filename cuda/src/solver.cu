@@ -853,6 +853,24 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
 											  h_rows.data(), info, 0.1f, buffer.data()));
 
+	int nnz_l, nnz_u;
+	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(context_.cusolver_handle, &nnz_l, &nnz_u, info));
+
+	std::vector<index_t> hP(n), hQ(n), hL_indptr(n + 1), hU_indptr(n + 1), hL_cols(nnz_l), hU_cols(nnz_u);
+	std::vector<float> hL_data(nnz_l), hU_data(nnz_u);
+
+	CHECK_CUSOLVER(cusolverSpScsrluExtractHost(context_.cusolver_handle, hP.data(), hQ.data(), descr_L, hL_data.data(),
+											   hL_indptr.data(), hL_cols.data(), descr_U, hU_data.data(),
+											   hU_indptr.data(), hU_cols.data(), info, buffer.data()));
+
+	d_idxvec L_indptr = hL_indptr;
+	d_idxvec L_indices = hL_cols;
+	d_datvec L_data = hL_data;
+
+	d_idxvec U_indptr = hU_indptr;
+	d_idxvec U_indices = hU_cols;
+	d_datvec U_data = hU_data;
+
 
 	thrust::host_vector<index_t> hb_indptr = b_indptr;
 	thrust::host_vector<index_t> hb_indices = b_indices;
