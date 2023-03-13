@@ -655,7 +655,7 @@ void solver::solve_single_nonterm(index_t nonterm_idx, const d_idxvec& indptr, c
 	thrust::fill(L_indptr.begin() + scc_size + 1, L_indptr.end(), 0);
 
 	thrust::for_each(
-		nonempty_rows.begin(), nonempty_rows.begin(),
+		nonempty_rows.begin(), nonempty_rows.end(),
 		[ind = L_indptr.data().get() + scc_size, scc_size] __device__(index_t x) { ind[x + 1] = scc_size; });
 
 	thrust::inclusive_scan(L_indptr.begin() + scc_size, L_indptr.end(), L_indptr.begin() + scc_size);
@@ -676,20 +676,20 @@ __global__ void nway_hstack_indptr(index_t n, const index_t* __restrict__ N_indp
 	auto begin = offsets[idx];
 	auto end = offsets[idx + 1];
 
-	index_t one = 1; // todo add a special case for L
+	index_t one[2] = { 0, 1 };
 
 	if constexpr (L)
 		if (end - begin == 1)
 		{
-			one = N_indptr[begin + 1] - N_indptr[begin];
+			one[1] = N_indptr[begin + 1] - N_indptr[begin];
 			// printf("idx %i one %i \n", idx, one);
 		}
 
-	const index_t* my_indptr = (end - begin == 1) ? &one : (in_indptr[idx] + 1);
+	const index_t* my_indptr = (end - begin == 1) ? one : (in_indptr[idx]);
 
 	for (index_t i = begin; i < end; i++)
 	{
-		out_indptr[i + 1] = my_indptr[begin - i];
+		out_indptr[i + 1] = my_indptr[begin - i + 1] - my_indptr[begin - i];
 	}
 }
 
@@ -723,11 +723,12 @@ __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restric
 
 	if (!data)
 	{
-		const index_t* my_indices = (scc_nnz_size == 1) ? &indptr_begin : in_indices[idx];
+		index_t zero = 0;
+		const index_t* my_indices = (scc_nnz_size == 1) ? &zero : in_indices[idx];
 
 		for (index_t i = 0; i < scc_nnz_size; i++)
 		{
-			out_indices[my_begin] = my_indices[i];
+			out_indices[my_begin + i] = my_indices[i] + indptr_begin;
 		}
 	}
 	else
@@ -741,10 +742,9 @@ __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restric
 			auto N_end = N_indptr[indptr_begin + 1];
 			for (auto i = N_begin; i < N_end; i++)
 			{
-				auto d = N_data[i];
-				if (d < 0)
+				pivot = N_data[i];
+				if (pivot < 0)
 				{
-					pivot = N_data[i];
 					break;
 				}
 			}
@@ -753,7 +753,7 @@ __global__ void nway_hstack_indices_and_data(index_t n, const index_t* __restric
 
 		for (index_t i = 0; i < scc_nnz_size; i++)
 		{
-			out_data[my_begin] = my_data[i];
+			out_data[my_begin + i] = my_data[i];
 		}
 	}
 }
@@ -781,35 +781,20 @@ __global__ void nway_hstack_indices_and_data_trivial_L(
 
 	// find pivot and its index
 	float pivot;
-	index_t pivot_index;
 	auto N_begin = N_indptr[indptr_begin];
 	auto N_end = N_indptr[indptr_begin + 1];
-
-	auto N_scc_nnz_size = N_end - N_begin;
-
 	for (auto i = N_begin; i < N_end; i++)
 	{
-		auto d = N_data[i];
-		if (d < 0.f)
+		pivot = N_data[i];
+		if (pivot < 0.f)
 		{
-			pivot = d;
-			pivot_index = i;
 			break;
 		}
 	}
 
 	// printf("idx %i pivot %f p_idx %i\n", idx, pivot, pivot_index);
 
-	for (auto i = N_begin; i < pivot_index; i++)
-	{
-		out_indices[my_begin + i - N_begin] = N_indices[i];
-		out_data[my_begin + i - N_begin] = N_data[i] / pivot;
-	}
-
-	out_indices[my_begin + pivot_index - N_begin] = N_indices[pivot_index];
-	out_data[my_begin + pivot_index - N_begin] = 1;
-
-	for (auto i = pivot_index + 1; i < N_end; i++)
+	for (auto i = N_begin; i < N_end; i++)
 	{
 		out_indices[my_begin + i - N_begin] = N_indices[i];
 		out_data[my_begin + i - N_begin] = N_data[i] / pivot;
@@ -876,11 +861,8 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 
-		thrust::inclusive_scan(U_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0], U_indptr.end(),
-							   U_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0]);
-
-		thrust::inclusive_scan(L_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0], L_indptr.end(),
-							   L_indptr.begin() + nonterminals_offsets_[1] - nonterminals_offsets_[0]);
+		thrust::inclusive_scan(U_indptr.begin(), U_indptr.end(), U_indptr.begin());
+		thrust::inclusive_scan(L_indptr.begin(), L_indptr.end(), L_indptr.begin());
 
 		index_t U_nnz = U_indptr.back();
 		index_t L_nnz = L_indptr.back();
