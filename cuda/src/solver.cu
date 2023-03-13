@@ -836,8 +836,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 
 	// step 4: gather sorted csrVal
 	d_datvec sorted_data(data.size());
-	thrust::copy(thrust::make_permutation_iterator(data.begin(), P.begin()),
-				 thrust::make_permutation_iterator(data.begin(), P.end()), sorted_data.begin());
+	thrust::scatter(data.begin(), data.end(), P.begin(), sorted_data.begin());
 	data = std::move(sorted_data);
 
 	index_t nt_n = nonterminals_offsets_.size() - 1;
@@ -846,7 +845,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	// print("N indices ", rows);
 	// print("N data    ", data);
 
-	d_idxvec L_indptr(nt_n + 1), L_indices, U_indptr(nt_n + 1), U_indices;
+	d_idxvec L_indptr(n + 1), L_indices, U_indptr(n + 1), U_indices;
 	d_datvec L_data, U_data;
 
 	{
@@ -935,7 +934,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 		// print("L_data    ", L_data);
 
 
-		for (size_t i = 0; i < nt_n + 1; i++)
+		for (size_t i = 0; i < n + 1; i++)
 		{
 			if (U_indptr[i] != i)
 				std::cout << "bad at indptr " << i << " what: " << U_indptr[i] << std::endl;
@@ -963,14 +962,14 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 				std::cout << "bad at data " << i << " what: " << U_data[i] << std::endl;
 		}
 
-		for (size_t i = 0; i < nt_n + 1; i++)
+		for (size_t i = 0; i < n + 1; i++)
 		{
 			if (L_indptr[i] != indptr[i])
 				std::cout << "bad at Lindptr " << i << " what: " << L_indptr[i] << std::endl;
 		}
 
 
-		for (size_t i = 0; i < nt_n; i++)
+		for (size_t i = 0; i < n; i++)
 		{
 			float pivot;
 			index_t begin = indptr[i];
