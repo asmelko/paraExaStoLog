@@ -823,8 +823,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 		{
 			if (rows[j] < i)
 				std::cout << "bad at Lindices " << i << " what: " << rows[j] << std::endl;
+		}
 	}
-
 	// cusparseMatDescr_t descr_N = 0;
 
 
@@ -871,8 +871,8 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	// 					 [&](index_t nonterm_idx) {
 	// 						 LU_part_t p;
 
-	// 						 solve_single_nonterm(nonterm_idx, indptr, rows, data, p.L_indptr, p.L_indices, p.L_data,
-	// 											  p.U_indptr, p.U_indices, p.U_data);
+	// 						 solve_single_nonterm(nonterm_idx, indptr, rows, data, p.L_indptr, p.L_indices,
+	// p.L_data, 											  p.U_indptr, p.U_indices, p.U_data);
 
 	// 						 L_indptr_vec[nonterm_idx] = p.L_indptr.data().get();
 	// 						 L_indices_vec[nonterm_idx] = p.L_indices.data().get();
