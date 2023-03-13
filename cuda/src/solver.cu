@@ -814,30 +814,30 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 {
 	size_t pBufferSizeInBytes = 0;
 
-	cusparseMatDescr_t descr_N = 0;
+	// cusparseMatDescr_t descr_N = 0;
 
 
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
+	// CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
+	// CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
+	// CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
 
-	// step 1: allocate buffer
-	CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
-												  rows.data().get(), &pBufferSizeInBytes));
-	thrust::device_vector<char> buffer(pBufferSizeInBytes);
+	// // step 1: allocate buffer
+	// CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
+	// 											  rows.data().get(), &pBufferSizeInBytes));
+	// thrust::device_vector<char> buffer(pBufferSizeInBytes);
 
-	// step 2: setup permutation vector P to identity
-	d_idxvec P(nnz);
-	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
+	// // step 2: setup permutation vector P to identity
+	// d_idxvec P(nnz);
+	// CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
 
-	// step 3: sort CSR format
-	CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
-									rows.data().get(), P.data().get(), buffer.data().get()));
+	// // step 3: sort CSR format
+	// CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
+	// 								rows.data().get(), P.data().get(), buffer.data().get()));
 
-	// step 4: gather sorted csrVal
-	d_datvec sorted_data(data.size());
-	thrust::scatter(data.begin(), data.end(), P.begin(), sorted_data.begin());
-	data = std::move(sorted_data);
+	// // step 4: gather sorted csrVal
+	// d_datvec sorted_data(data.size());
+	// thrust::scatter(data.begin(), data.end(), P.begin(), sorted_data.begin());
+	// data = std::move(sorted_data);
 
 	index_t nt_n = nonterminals_offsets_.size() - 1;
 
