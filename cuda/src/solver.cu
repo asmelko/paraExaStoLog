@@ -974,8 +974,13 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			float pivot;
 			index_t begin = indptr[i];
 			index_t end = indptr[i + 1];
+			index_t curr_idx = 0;
 			for (auto j = begin; j < end; j++)
 			{
+				if (curr_idx > L_indices[j])
+					std::cout << "bad order at Lindices " << j << " what: " << L_indices[j] << std::endl;
+				curr_idx = L_indices[j];
+
 				if (L_indices[j] != rows[j])
 					std::cout << "bad at Lindices " << j << " what: " << L_indices[j] << std::endl;
 
