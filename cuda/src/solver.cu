@@ -937,21 +937,23 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 
 		for (size_t i = 0; i < nt_n; i++)
 		{
-			if (L_indptr[i] != i)
+			if (L_indptr[i] != indptr[i])
 				std::cout << "bad at Lindptr " << i << " what: " << L_indptr[i] << std::endl;
 		}
 
 
-		for (size_t i = 0; i < L_nnz; i++)
+		for (size_t i = 0; i < nt_n; i++)
 		{
-			if (L_indices[i] != rows[i])
-				std::cout << "bad at Lindices " << i << " what: " << L_indices[i] << std::endl;
+
 
 			float pivot;
-			index_t N_begin = indptr[i];
-			index_t N_end = indptr[i + 1];
-			for (auto j = N_begin; j < N_end; j++)
+			index_t begin = indptr[i];
+			index_t end = indptr[i + 1];
+			for (auto j = begin; j < end; j++)
 			{
+				if (L_indices[j] != rows[j])
+					std::cout << "bad at Lindices " << j << " what: " << L_indices[j] << std::endl;
+
 				pivot = data[j];
 				if (pivot < 0.f)
 				{
@@ -959,8 +961,11 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 				}
 			}
 
-			if (L_data[i] != data[i] / pivot)
-				std::cout << "bad at Ldata " << i << " what: " << L_data[i] << std::endl;
+			for (auto j = begin; j < end; j++)
+			{
+				if (L_data[j] != data[j] / pivot)
+					std::cout << "bad at Ldata " << j << " what: " << L_data[j] << std::endl;
+			}
 		}
 
 		// for (size_t i = 0; i < nt_n; i++)
