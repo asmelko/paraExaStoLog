@@ -814,6 +814,17 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 {
 	size_t pBufferSizeInBytes = 0;
 
+	for (size_t i = 0; i < n; i++)
+	{
+		float pivot;
+		index_t begin = indptr[i];
+		index_t end = indptr[i + 1];
+		for (auto j = begin; j < end; j++)
+		{
+			if (rows[j] < i)
+				std::cout << "bad at Lindices " << i << " what: " << rows[j] << std::endl;
+	}
+
 	// cusparseMatDescr_t descr_N = 0;
 
 
