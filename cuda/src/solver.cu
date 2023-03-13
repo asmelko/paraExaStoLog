@@ -885,6 +885,18 @@ void solver::solve_system(d_idxvec& indptr, d_idxvec& rows, thrust::device_vecto
 	std::cout << "Ldata size " << L_data.size() << std::endl;
 	std::cout << "Lindptr size " << L_indptr.size() << std::endl;
 
+	std::cout << "Udata size " << L_data.size() << std::endl;
+	std::cout << "Uindptr size " << L_indptr.size() << std::endl;
+
+	print("U_indptr  ", U_indptr, 30);
+	print("U_indices ", U_indices, 30);
+	print("U_data    ", U_data, 30);
+
+
+	print("L_indptr  ", L_indptr, 30);
+	print("L_indices ", L_indices, 30);
+	print("L_data    ", L_data, 30);
+
 	if (L_data.size())
 		CHECK_CUSPARSE(cusparseSbsrsv2_bufferSize(
 			context_.cusparse_handle, CUSPARSE_DIRECTION_ROW, CUSPARSE_OPERATION_NON_TRANSPOSE, n, L_data.size(),
