@@ -1001,6 +1001,9 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			}
 		}
 
+		print("10 L_indptr  ", L_indptr, 10);
+		print("10 L_indices ", L_indices, 10);
+
 		// for (size_t i = 0; i < nt_n; i++)
 		// {
 		// 	if (L_indptr[i] != indptr[i])
