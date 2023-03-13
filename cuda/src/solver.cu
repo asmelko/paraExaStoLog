@@ -935,7 +935,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 		// print("L_data    ", L_data);
 
 
-		for (size_t i = 0; i < nt_n; i++)
+		for (size_t i = 0; i < nt_n + 1; i++)
 		{
 			if (U_indptr[i] != i)
 				std::cout << "bad at indptr " << i << " what: " << U_indptr[i] << std::endl;
@@ -963,7 +963,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 				std::cout << "bad at data " << i << " what: " << U_data[i] << std::endl;
 		}
 
-		for (size_t i = 0; i < nt_n; i++)
+		for (size_t i = 0; i < nt_n + 1; i++)
 		{
 			if (L_indptr[i] != indptr[i])
 				std::cout << "bad at Lindptr " << i << " what: " << L_indptr[i] << std::endl;
@@ -976,9 +976,10 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 			index_t begin = indptr[i];
 			index_t end = indptr[i + 1];
 			index_t curr_idx = 0;
+			index_t piv_idx;
 			for (auto j = begin; j < end; j++)
 			{
-				if (curr_idx > L_indices[j])
+				if (curr_idx >= L_indices[j])
 					std::cout << "bad order at Lindices " << j << " what: " << L_indices[j] << std::endl;
 				curr_idx = L_indices[j];
 
@@ -988,13 +989,14 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 				pivot = data[j];
 				if (pivot < 0.f)
 				{
+					piv_idx = j;
 					break;
 				}
 			}
 
 			for (auto j = begin; j < end; j++)
 			{
-				if (L_data[j] != data[j] / pivot)
+				if ((L_data[j] != data[j] / pivot) || (j == piv_idx && (L_data[j] != 1)))
 					std::cout << "bad at Ldata " << j << " what: " << L_data[j] << std::endl;
 			}
 		}
