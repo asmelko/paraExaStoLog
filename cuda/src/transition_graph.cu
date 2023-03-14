@@ -9,6 +9,8 @@
 #include "transition_table.h"
 #include "utils.h"
 
+constexpr size_t BIG_SCC_SIZE = 100'000;
+
 __global__ void topological_labelling(index_t n, const index_t* __restrict__ indptr,
 									  const index_t* __restrict__ indices, index_t* __restrict__ labels,
 									  index_t current_label, bool* __restrict__ changed)
@@ -74,13 +76,13 @@ struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t,
 	}
 };
 
-d_idxvec transition_graph::compute_sccs()
+d_idxvec transition_graph::compute_sccs(const d_idxvec& indptr, const d_idxvec& indices)
 {
-	int n = indptr_.size() - 1;
-	int nnz = rows_.size();
+	int n = indptr.size() - 1;
+	int nnz = indices.size();
 
-	auto& in_offsets = indptr_;
-	auto& in_indices = rows_;
+	auto& in_offsets = indptr;
+	auto& in_indices = indices;
 
 	d_idxvec out_offset;
 	d_idxvec out_indices;
@@ -147,8 +149,8 @@ void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices,
 	ordering = d_idxvec(thrust::make_counting_iterator(0), thrust::make_counting_iterator(n));
 	thrust::sort_by_key(labels.begin(), labels.end(), thrust::make_zip_iterator(ordering.begin(), sizes.begin() + 1));
 
-	//print("20 topo ordering ", ordering, 20);
-	//print("20 topo sizes    ", sizes, 20);
+	// print("20 topo ordering ", ordering, 20);
+	// print("20 topo sizes    ", sizes, 20);
 }
 
 void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_count, d_idxvec& meta_indptr,
@@ -179,7 +181,7 @@ void transition_graph::find_terminals()
 	std::cout << "vertices count " << vertices_count_ << std::endl;
 	std::cout << "edges count " << edges_count_ << std::endl;
 
-	auto labels = compute_sccs();
+	auto labels = compute_sccs(indptr_, rows_);
 
 	std::cout << "labeled " << std::endl;
 
@@ -259,7 +261,6 @@ void transition_graph::find_terminals()
 
 		reordered_vertices.resize(vertices_count_);
 
-
 		int blocksize = 256;
 		int gridsize = (sccs_count + blocksize - 1) / blocksize;
 
@@ -271,4 +272,67 @@ void transition_graph::find_terminals()
 	}
 
 	// print("20 reordered_vertices ", reordered_vertices, 20);
+}
+
+void transition_graph::take_coo_subset(index_t v_n, const index_t* vertices, d_idxvec& subset_rows,
+									   d_idxvec& subset_cols)
+{
+	subset_rows.resize(rows_.size());
+	subset_cols.resize(rows_.size());
+
+	auto b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
+	auto e = thrust::make_zip_iterator(rows_.end(), cols_.end());
+
+	auto out_b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
+
+	thrust::device_vector<index_t> mask(vertices_count_, 0);
+
+	thrust::for_each_n(thrust::make_counting_iterator<index_t>(0), v_n,
+					   [vertices, mask = mask.data().get()] __device__(auto x) { mask[vertices[x]] = 1; });
+
+	auto out_e = thrust::copy_if(
+		b, e, out_b, [mask = mask.data().get()] __device__(auto x) { return mask[x.first] || mask[x.second]; });
+
+	subset_rows.resize(out_e - subset_rows.begin());
+	subset_cols.resize(subset_rows.size());
+
+	out_b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
+	auto out_e = thrust::make_zip_iterator(rows_.end(), cols_.end());
+
+	// now transform the vertices so they start from 0
+	{
+		// create map for scc vertices so they start from 0
+		thrust::copy(thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(v_n),
+					 thrust::make_permutation_iterator(mask.begin(), vertices));
+	}
+
+	thrust::transform(out_b, out_e, out_b, [map = mask.data().get()] __device__(thrust::tuple<index_t, index_t> x) {
+		return thrust::make_tuple(map[thrust::get<0>(x)], map[thrust::get<1>(x)]);
+	});
+}
+
+void transition_graph::reorder_sccs(thrust::host_vector<index_t> scc_offsets)
+{
+	auto sccs_n = scc_offsets.size() - 1;
+
+	for (int i = 0; i < sccs_n; i++)
+	{
+		auto scc_size = scc_offsets[i + 1] - scc_offsets[i];
+
+		if (scc_size < BIG_SCC_SIZE)
+			continue;
+
+		std::cout << "REORDERING scc " << i << " with size " << scc_size << std::endl;
+
+		d_idxvec scc_rows, scc_cols;
+
+		// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
+		take_coo_subset(scc_size - 1, reordered_vertices.data().get() + scc_offsets[i], scc_rows, scc_cols);
+
+		// now coo to csc
+		d_idxvec scc_indptr;
+		transition_table::coo2csc(context_.cusparse_handle, scc_size - 1, scc_rows, scc_cols, scc_indptr);
+
+
+	}
 }
