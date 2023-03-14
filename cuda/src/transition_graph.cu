@@ -297,7 +297,7 @@ void transition_graph::take_coo_subset(const d_idxvec& rows, const d_idxvec& col
 					   [vertices, mask = mask.data().get()] __device__(index_t x) { mask[vertices[x]] = 1; });
 
 	auto out_e = thrust::copy_if(b, e, out_b, [mask = mask.data().get()] __device__(thrust::tuple<index_t, index_t> x) {
-		return mask[thrust::get<0>(x)] || mask[thrust::get<1>(x)];
+		return mask[thrust::get<0>(x)] && mask[thrust::get<1>(x)];
 	});
 
 	subset_rows.resize(thrust::get<0>(out_e.get_iterator_tuple()) - subset_rows.begin());
