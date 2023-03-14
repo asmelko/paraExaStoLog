@@ -9,7 +9,7 @@
 #include "transition_table.h"
 #include "utils.h"
 
-constexpr size_t BIG_SCC_SIZE = 100;
+constexpr size_t BIG_SCC_SIZE = 10'000;
 
 __global__ void topological_labelling(index_t n, const index_t* __restrict__ indptr,
 									  const index_t* __restrict__ indices, index_t* __restrict__ labels,
