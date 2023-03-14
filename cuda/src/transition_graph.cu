@@ -179,7 +179,7 @@ void transition_graph::reorganize_all()
 
 	terminals_offsets_all.resize(terminals_count + 1);
 
-	thrust::copy(scc_offsets.begin(), scc_offsets.end() + terminals_offsets_all.size(), terminals_offsets_all.begin());
+	thrust::copy(scc_offsets.begin(), scc_offsets.begin() + terminals_offsets_all.size(), terminals_offsets_all.begin());
 }
 
 void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
@@ -243,6 +243,8 @@ void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& 
 
 	// get terminals
 	terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
+
+	std::cout << "terminals count " << terminals_count << std::endl;
 
 	// reorganize
 	{
