@@ -175,15 +175,17 @@ void transition_graph::reorganize_all()
 {
 	index_t terminals_count;
 	d_idxvec scc_offsets;
-	reorganize_graph(indptr_, rows_, cols_, reordered_vertices_all, scc_offsets, terminals_count);
+	reorganize_graph(indptr_, rows_, cols_, reordered_vertices_all, scc_offsets, terminals_count, false);
 
 	terminals_offsets_all.resize(terminals_count + 1);
 
-	thrust::copy(scc_offsets.begin(), scc_offsets.begin() + terminals_offsets_all.size(), terminals_offsets_all.begin());
+	thrust::copy(scc_offsets.begin(), scc_offsets.begin() + terminals_offsets_all.size(),
+				 terminals_offsets_all.begin());
 }
 
 void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
-										d_idxvec& reordered_vertices, d_idxvec& scc_offsets, index_t& terminals_count)
+										d_idxvec& reordered_vertices, d_idxvec& scc_offsets, index_t& terminals_count,
+										bool revert_all)
 {
 	auto vertices_count = indptr.size() - 1;
 	auto edges_count = cols.size();
@@ -251,8 +253,9 @@ void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& 
 		scc_sizes[0] = 0;
 
 		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
-		thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
-		thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
+		auto reverse_begin = revert_all ? 0 : terminals_count;
+		thrust::reverse(scc_sizes.begin() + reverse_begin + 1, scc_sizes.end());
+		thrust::reverse(meta_ordering.begin() + reverse_begin, meta_ordering.end());
 
 		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
 

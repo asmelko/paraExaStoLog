@@ -25,7 +25,8 @@ public:
 	transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr);
 
 	void reorganize_graph(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
-						  d_idxvec& reordered_vertices, d_idxvec& scc_offsets, index_t& terminals_count);
+						  d_idxvec& reordered_vertices, d_idxvec& scc_offsets, index_t& terminals_count,
+						  bool revert_all);
 
 	void reorganize_all();
 
