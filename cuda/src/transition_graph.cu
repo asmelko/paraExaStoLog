@@ -283,27 +283,27 @@ void transition_graph::take_coo_subset(index_t v_n, const index_t* vertices, d_i
 	auto b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
 	auto e = thrust::make_zip_iterator(rows_.end(), cols_.end());
 
-	auto out_b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
+	auto out_b = thrust::make_zip_iterator(subset_rows.begin(), subset_cols.begin());
 
-	thrust::device_vector<index_t> mask(vertices_count_, 0);
+	d_idxvec mask(vertices_count_, 0);
 
 	thrust::for_each_n(thrust::make_counting_iterator<index_t>(0), v_n,
-					   [vertices, mask = mask.data().get()] __device__(auto x) { mask[vertices[x]] = 1; });
+					   [vertices, mask = mask.data().get()] __device__(index_t x) { mask[vertices[x]] = 1; });
 
-	auto out_e = thrust::copy_if(
-		b, e, out_b, [mask = mask.data().get()] __device__(auto x) { return mask[x.first] || mask[x.second]; });
+	auto out_e = thrust::copy_if(b, e, out_b, [mask = mask.data().get()] __device__(thrust::tuple<index_t, index_t> x) {
+		return mask[thrust::get<0>(x)] || mask[thrust::get<1>(x)];
+	});
 
-	subset_rows.resize(out_e - subset_rows.begin());
+	subset_rows.resize(thrust::get<0>(out_e.get_iterator_tuple()) - subset_rows.begin());
 	subset_cols.resize(subset_rows.size());
 
-	out_b = thrust::make_zip_iterator(rows_.begin(), cols_.begin());
-	auto out_e = thrust::make_zip_iterator(rows_.end(), cols_.end());
+	out_b = thrust::make_zip_iterator(subset_rows.begin(), subset_cols.begin());
+	out_e = thrust::make_zip_iterator(subset_rows.end(), subset_cols.end());
 
 	// now transform the vertices so they start from 0
 	{
-		// create map for scc vertices so they start from 0
-		thrust::copy(thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(v_n),
-					 thrust::make_permutation_iterator(mask.begin(), vertices));
+		thrust::for_each_n(thrust::make_counting_iterator<index_t>(0), v_n,
+						   [vertices, mask = mask.data().get()] __device__(index_t x) { mask[vertices[x]] = x; });
 	}
 
 	thrust::transform(out_b, out_e, out_b, [map = mask.data().get()] __device__(thrust::tuple<index_t, index_t> x) {
@@ -332,7 +332,5 @@ void transition_graph::reorder_sccs(thrust::host_vector<index_t> scc_offsets)
 		// now coo to csc
 		d_idxvec scc_indptr;
 		transition_table::coo2csc(context_.cusparse_handle, scc_size - 1, scc_rows, scc_cols, scc_indptr);
-
-
 	}
 }
