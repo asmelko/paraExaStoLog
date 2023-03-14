@@ -230,6 +230,7 @@ void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& 
 		reordered_vertices = d_idxvec(thrust::make_counting_iterator<index_t>(0),
 									  thrust::make_counting_iterator<index_t>(vertices_count));
 
+		terminals_count = 1;
 		scc_offsets = std::move(scc_sizes);
 		return;
 	}
