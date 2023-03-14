@@ -28,8 +28,8 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  rows_(t.rows),
 	  cols_(t.cols),
 	  indptr_(t.indptr),
-	  ordered_vertices_(std::move(g.reordered_vertices)),
-	  terminals_offsets_(std::move(g.terminals_offsets)),
+	  ordered_vertices_(std::move(g.reordered_vertices_all)),
+	  terminals_offsets_(std::move(g.terminals_offsets_all)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
 {}
 

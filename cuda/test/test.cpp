@@ -68,10 +68,10 @@ TEST(trans_graph, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices_all;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets_all;
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -102,10 +102,10 @@ TEST(solver, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices_all;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets_all;
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -114,7 +114,7 @@ TEST(solver, toy)
 
 	std::cout << "before" << std::endl;
 
-	std::cout << g.reordered_vertices.size() << g.terminals_offsets.size();
+	std::cout << g.reordered_vertices_all.size() << g.terminals_offsets_all.size();
 
 	solver s(context, table, std::move(g), std::move(st));
 
@@ -170,10 +170,10 @@ TEST(solver, toy2)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices_all;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets_all;
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
@@ -232,10 +232,10 @@ TEST(solver, toy3)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> vertices = g.reordered_vertices_all;
+	thrust::host_vector<index_t> offsets = g.terminals_offsets_all;
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
@@ -296,7 +296,7 @@ TEST(solver, kras)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
 	std::cout << "after graph" << std::endl;
 
@@ -342,7 +342,7 @@ TEST(solver, cohen)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
 	std::cout << "after graph" << std::endl;
 
@@ -390,7 +390,7 @@ TEST(solver, t026)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_all();
 
 	std::cout << "after graph" << std::endl;
 
