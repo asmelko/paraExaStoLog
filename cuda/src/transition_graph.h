@@ -30,8 +30,8 @@ public:
 
 	void reorganize_all();
 
-	void reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
-					  const d_idxvec& reordered_vertices, const thrust::host_vector<index_t>& scc_offsets);
+	void reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols, d_idxvec& reordered_vertices,
+					  const thrust::host_vector<index_t>& scc_offsets);
 	void take_coo_subset(const d_idxvec& rows, const d_idxvec& cols, index_t v_n, index_t subset_n,
 						 const index_t* vertices, d_idxvec& subset_rows, d_idxvec& subset_cols);
 };

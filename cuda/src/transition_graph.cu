@@ -181,6 +181,8 @@ void transition_graph::reorganize_all()
 
 	thrust::copy(scc_offsets.begin(), scc_offsets.begin() + terminals_offsets_all.size(),
 				 terminals_offsets_all.begin());
+
+	reorder_sccs(indptr_, rows_, cols_, reordered_vertices_all, scc_offsets);
 }
 
 void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
@@ -316,7 +318,7 @@ void transition_graph::take_coo_subset(const d_idxvec& rows, const d_idxvec& col
 }
 
 void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
-									const d_idxvec& reordered_vertices, const thrust::host_vector<index_t>& scc_offsets)
+									d_idxvec& reordered_vertices, const thrust::host_vector<index_t>& scc_offsets)
 {
 	auto sccs_n = scc_offsets.size() - 1;
 
@@ -338,5 +340,17 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 		// now coo to csc
 		d_idxvec scc_indptr;
 		transition_table::coo2csc(context_.cusparse_handle, scc_size - 1, scc_rows, scc_cols, scc_indptr);
+
+		index_t scc_term_c;
+		d_idxvec scc_reordered_vertices, scc_scc_offsets;
+		reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
+
+		reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
+
+		d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
+									   reordered_vertices.begin() + scc_offsets[i + 1] - 1);
+
+		thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
+						reordered_vertices.begin() + scc_offsets[i]);
 	}
 }
