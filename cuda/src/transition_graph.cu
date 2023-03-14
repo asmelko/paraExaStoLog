@@ -331,26 +331,55 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 		std::cout << "REORDERING scc " << i << " with size " << scc_size << std::endl;
 
-		d_idxvec scc_rows, scc_cols;
+		auto scc_size_first_half = scc_size / 2;
+		auto scc_size_second_half = scc_size - scc_size_first_half;
 
-		// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
-		take_coo_subset(rows, cols, indptr.size() - 1, scc_size - 1, reordered_vertices.data().get() + scc_offsets[i],
-						scc_rows, scc_cols);
+		{
+			d_idxvec scc_rows, scc_cols;
 
-		// now coo to csc
-		d_idxvec scc_indptr;
-		transition_table::coo2csc(context_.cusparse_handle, scc_size - 1, scc_rows, scc_cols, scc_indptr);
+			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
+			take_coo_subset(rows, cols, indptr.size() - 1, scc_size_first_half,
+							reordered_vertices.data().get() + scc_offsets[i], scc_rows, scc_cols);
 
-		index_t scc_term_c;
-		d_idxvec scc_reordered_vertices, scc_scc_offsets;
-		reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
+			// now coo to csc
+			d_idxvec scc_indptr;
+			transition_table::coo2csc(context_.cusparse_handle, scc_size_first_half, scc_rows, scc_cols, scc_indptr);
 
-		reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
+			index_t scc_term_c;
+			d_idxvec scc_reordered_vertices, scc_scc_offsets;
+			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
-		d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
-									   reordered_vertices.begin() + scc_offsets[i + 1] - 1);
+			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
 
-		thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
-						reordered_vertices.begin() + scc_offsets[i]);
+			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
+										   reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
+
+			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
+							reordered_vertices.begin() + scc_offsets[i]);
+		}
+
+		{
+			d_idxvec scc_rows, scc_cols;
+
+			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
+			take_coo_subset(rows, cols, indptr.size() - 1, scc_size_second_half,
+							reordered_vertices.data().get() + scc_offsets[i] + scc_size_first_half, scc_rows, scc_cols);
+
+			// now coo to csc
+			d_idxvec scc_indptr;
+			transition_table::coo2csc(context_.cusparse_handle, scc_size_second_half, scc_rows, scc_cols, scc_indptr);
+
+			index_t scc_term_c;
+			d_idxvec scc_reordered_vertices, scc_scc_offsets;
+			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
+
+			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
+
+			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half,
+										   reordered_vertices.begin() + scc_offsets[i] + scc_size);
+
+			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
+							reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
+		}
 	}
 }
