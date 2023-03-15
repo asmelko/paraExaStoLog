@@ -263,11 +263,15 @@ void transition_graph::find_terminals()
 		int blocksize = 256;
 		int gridsize = (sccs_count + blocksize - 1) / blocksize;
 
+		std::cout << "reorganize start" << std::endl;
+
 		reorganize<<<gridsize, blocksize>>>(vertices_count_, sccs_count, terminals_offsets.size() - 1,
 											scc_sizes.data().get(), meta_ordering.data().get(), labels.data().get(),
 											reordered_vertices.data().get());
 
 		CHECK_CUDA(cudaDeviceSynchronize());
+
+		std::cout << "reorganize end" << std::endl;
 	}
 
 	// print("20 reordered_vertices ", reordered_vertices, 20);
