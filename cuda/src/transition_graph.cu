@@ -35,9 +35,9 @@ __global__ void topological_labelling(index_t n, const index_t* __restrict__ ind
 	changed[0] = true;
 }
 
-__global__ void reorganize(index_t v_n, index_t scc_n, index_t t_n, const index_t* __restrict__ offsets,
-						   const index_t* __restrict__ order, const index_t* __restrict__ labels,
-						   index_t* __restrict__ reordered)
+__global__ void reorganize(index_t scc_n, const index_t* __restrict__ original_offsets,
+						   const index_t* __restrict__ new_offsets, const index_t* __restrict__ order,
+						   const index_t* __restrict__ scc_groups, index_t* __restrict__ reordered)
 {
 	auto idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -47,13 +47,12 @@ __global__ void reorganize(index_t v_n, index_t scc_n, index_t t_n, const index_
 	// idx = (idx >= t_n) ? (scc_n - 1) - (idx - t_n) : idx;
 
 	auto scc_idx = order[idx];
-	auto begin = offsets[idx];
+	auto out_begin = new_offsets[idx];
+	auto in_begin = original_offsets[scc_idx];
+	auto in_end = original_offsets[scc_idx + 1];
 
-	for (int v_idx = 0; v_idx < v_n; v_idx++)
-	{
-		if (labels[v_idx] == scc_idx)
-			reordered[begin++] = v_idx;
-	}
+	for (int i = in_begin; i < in_end; i++)
+		reordered[out_begin + i - in_begin] = scc_groups[i];
 }
 
 transition_graph::transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols,
@@ -147,8 +146,8 @@ void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices,
 	ordering = d_idxvec(thrust::make_counting_iterator(0), thrust::make_counting_iterator(n));
 	thrust::sort_by_key(labels.begin(), labels.end(), thrust::make_zip_iterator(ordering.begin(), sizes.begin() + 1));
 
-	//print("20 topo ordering ", ordering, 20);
-	//print("20 topo sizes    ", sizes, 20);
+	// print("20 topo ordering ", ordering, 20);
+	// print("20 topo sizes    ", sizes, 20);
 }
 
 void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_count, d_idxvec& meta_indptr,
@@ -184,7 +183,9 @@ void transition_graph::find_terminals()
 	std::cout << "labeled " << std::endl;
 
 	d_idxvec scc_ids_tmp = labels;
-	thrust::sort(scc_ids_tmp.begin(), scc_ids_tmp.end());
+	d_idxvec vertices_ordered_by_scc(thrust::make_counting_iterator<index_t>(0),
+									 thrust::make_counting_iterator<index_t>(vertices_count_));
+	thrust::sort_by_key(scc_ids_tmp.begin(), scc_ids_tmp.end(), vertices_ordered_by_scc.begin());
 
 	d_idxvec scc_ids(vertices_count_), scc_sizes(vertices_count_ + 1);
 	auto scc_end =
@@ -193,6 +194,9 @@ void transition_graph::find_terminals()
 
 	scc_sizes.resize(scc_end.second - scc_sizes.begin());
 	scc_ids.resize(scc_sizes.size() - 1);
+
+	d_idxvec original_sccs_offsets(scc_sizes.size());
+	thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), original_sccs_offsets.begin());
 
 	// print("labels    ", labels);
 	// print("scc_ids   ", scc_ids);
@@ -259,14 +263,13 @@ void transition_graph::find_terminals()
 
 		reordered_vertices.resize(vertices_count_);
 
-
 		int blocksize = 256;
 		int gridsize = (sccs_count + blocksize - 1) / blocksize;
 
 		std::cout << "reorganize start" << std::endl;
 
-		reorganize<<<gridsize, blocksize>>>(vertices_count_, sccs_count, terminals_offsets.size() - 1,
-											scc_sizes.data().get(), meta_ordering.data().get(), labels.data().get(),
+		reorganize<<<gridsize, blocksize>>>(sccs_count, original_sccs_offsets.data().get(), scc_sizes.data().get(),
+											meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
 											reordered_vertices.data().get());
 
 		CHECK_CUDA(cudaDeviceSynchronize());
