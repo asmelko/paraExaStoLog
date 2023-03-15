@@ -328,7 +328,6 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 		if (scc_size < BIG_SCC_SIZE)
 			continue;
 
-		std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1" << std::endl << std::endl;
 
 		auto scc_size_first_half = scc_size / 2;
 		auto scc_size_second_half = scc_size - scc_size_first_half;
@@ -348,6 +347,11 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			d_idxvec scc_reordered_vertices, scc_scc_offsets;
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
+			std::cout << std::endl;
+			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1 "
+					  << scc_size_first_half << "reordered size" << scc_reordered_vertices.size() << std::endl;
+			print("scc_reordered_vertices", scc_reordered_vertices, 20);
+
 			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
@@ -356,7 +360,6 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
 							reordered_vertices.begin() + scc_offsets[i]);
 		}
-		std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1" << std::endl << std::endl;
 
 		{
 			d_idxvec scc_rows, scc_cols;
@@ -372,6 +375,12 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			index_t scc_term_c;
 			d_idxvec scc_reordered_vertices, scc_scc_offsets;
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
+
+			std::cout << std::endl;
+			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1 "
+					  << scc_size_first_half << "reordered size" << scc_reordered_vertices.size() << std::endl;
+			print("scc_reordered_vertices", scc_reordered_vertices, 20);
+
 
 			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
