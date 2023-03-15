@@ -1,6 +1,8 @@
 // Copyright 2016, National University of Defense Technology
 // Authors: Xuhao Chen <cxh@illinois.edu>
 #define SCC_VARIANT "two-phase"
+#include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 #include <thrust/reduce.h>
 
 #include "timer.h"
@@ -8,15 +10,13 @@
 #define debug 1
 
 void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_indices, const int* out_row_offsets,
-			   const int* out_column_indices, int* h_scc_root)
+			   const int* out_column_indices, int* d_scc_root)
 {
 	Timer t;
 	int iter = 1;
 	unsigned *d_colors, *d_locks;
-	int* d_scc_root;
 	CUDA_SAFE_CALL(cudaMalloc((void**)&d_colors, m * sizeof(unsigned)));
 	CUDA_SAFE_CALL(cudaMalloc((void**)&d_locks, (PIVOT_HASH_CONST + 1) * sizeof(unsigned)));
-	CUDA_SAFE_CALL(cudaMalloc((void**)&d_scc_root, m * sizeof(int)));
 	thrust::fill(thrust::device, d_colors, d_colors + m, INIT_COLOR);
 	thrust::sequence(thrust::device, d_scc_root, d_scc_root + m);
 
@@ -123,9 +123,9 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	}
 	t.Stop();
 
-	CUDA_SAFE_CALL(cudaMemcpy(h_scc_root, d_scc_root, sizeof(unsigned) * m, cudaMemcpyDeviceToHost));
 	CUDA_SAFE_CALL(cudaMemcpy(h_status, d_status, sizeof(unsigned char) * m, cudaMemcpyDeviceToHost));
-	print_statistics(m, h_scc_root, h_status);
+	thrust::host_vector<int> h_scc_root = thrust::device_vector<int>(d_scc_root, d_scc_root + m);
+	print_statistics(m, h_scc_root.data(), h_status);
 	printf("\titerations = %d.\n", iter);
 	printf("\truntime [%s] = %f ms.\n", SCC_VARIANT, t.Millisecs());
 	CUDA_SAFE_CALL(cudaFree(d_scc_root));
