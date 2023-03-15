@@ -331,13 +331,15 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 		if (scc_size < BIG_SCC_SIZE)
 			continue;
 
-		constexpr size_t part = 100;
+		constexpr size_t part = 10;
 
 		for (int j = part - 1; j >= 1; j--)
 		{
 			std::cout << std::endl;
 			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "part" << j
 					  << std::endl;
+
+			scc_size = 10;
 
 			auto reord_end = (scc_size * (j)) / part;
 
@@ -346,6 +348,11 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
 			take_coo_subset(rows, cols, indptr.size() - 1, reord_end, reordered_vertices.data().get() + scc_offsets[i],
 							scc_rows, scc_cols);
+
+			std::vector<index_t> c = { 1, 2, 5, 6, 8, 3, 4, 10, 7, 9 };
+			std::vector<index_t> r = { 2, 3, 6, 7, 9, 4, 5, 1, 8, 10 };
+			scc_rows.assign(r.begin(), r.end() - reord_end);
+			scc_cols.assign(c.begin(), c.end() - reord_end);
 
 			// now coo to csc
 			d_idxvec scc_indptr;
@@ -357,7 +364,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 
 			print("scc_reordered_vertices first half before level " + std::to_string(level) + " ",
-				  scc_reordered_vertices, 20);
+				  scc_reordered_vertices);
 
 			// reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
@@ -365,10 +372,12 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 										   reordered_vertices.begin() + scc_offsets[i] + reord_end);
 
 			print("scc_reordered_vertices first half after level " + std::to_string(level) + " ",
-				  scc_reordered_vertices, 20);
+				  scc_reordered_vertices);
 
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
 							reordered_vertices.begin() + scc_offsets[i]);
 		}
+
+		throw runtime_error("");
 	}
 }
