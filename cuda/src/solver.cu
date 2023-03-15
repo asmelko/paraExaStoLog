@@ -261,9 +261,9 @@ void solver::solve_terminal_part()
 			for (int j = begin; j < end; j++)
 			{
 				if (h_scc_rows_tmp[j] < i)
-					diag_distance_L += i - j;
+					diag_distance_L += i - h_scc_rows_tmp[j];
 				if (h_scc_rows_tmp[j] > i)
-					diag_distance_U += j - i;
+					diag_distance_U += h_scc_rows_tmp[j] - i;
 			}
 		}
 
