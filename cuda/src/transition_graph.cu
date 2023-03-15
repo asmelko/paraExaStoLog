@@ -333,6 +333,12 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 		constexpr size_t part = 10;
 
+			std::vector<index_t> c = { 1, 2, 5, 6, 8, 3, 4, 10, 7, 9 };
+			std::vector<index_t> r = { 2, 3, 6, 7, 9, 4, 5, 1, 8, 10 };
+		d_idxvec myrows = r;
+		d_idxvec mycols = c;
+		d_idxvec myreordered_vertices(thrust::make_counting_iterator(1), thrust::make_counting_iterator(11));
+
 		for (int j = part - 1; j >= 1; j--)
 		{
 			std::cout << std::endl;
@@ -346,13 +352,8 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			d_idxvec scc_rows, scc_cols;
 
 			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
-			take_coo_subset(rows, cols, indptr.size() - 1, reord_end, reordered_vertices.data().get() + scc_offsets[i],
+			take_coo_subset(myrows, mycols, 10, reord_end, myreordered_vertices.data().get(),
 							scc_rows, scc_cols);
-
-			std::vector<index_t> c = { 1, 2, 5, 6, 8, 3, 4, 10, 7, 9 };
-			std::vector<index_t> r = { 2, 3, 6, 7, 9, 4, 5, 1, 8, 10 };
-			scc_rows.assign(r.begin(), r.begin() + reord_end);
-			scc_cols.assign(c.begin(), c.begin() + reord_end);
 
 			// now coo to csc
 			d_idxvec scc_indptr;
@@ -368,14 +369,14 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 			// reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
-			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
-										   reordered_vertices.begin() + scc_offsets[i] + reord_end);
+			d_idxvec reordered_subset_copy(myreordered_vertices.begin(),
+										   myreordered_vertices.begin() + reord_end);
 
 			print("scc_reordered_vertices first half after level " + std::to_string(level) + " ",
 				  scc_reordered_vertices);
 
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
-							reordered_vertices.begin() + scc_offsets[i]);
+							myreordered_vertices.begin());
 		}
 
 		throw runtime_error("");
