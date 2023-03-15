@@ -351,8 +351,8 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 			std::vector<index_t> c = { 1, 2, 5, 6, 8, 3, 4, 10, 7, 9 };
 			std::vector<index_t> r = { 2, 3, 6, 7, 9, 4, 5, 1, 8, 10 };
-			scc_rows.assign(r.begin(), r.end() - reord_end);
-			scc_cols.assign(c.begin(), c.end() - reord_end);
+			scc_rows.assign(r.begin(), r.begin() + reord_end);
+			scc_cols.assign(c.begin(), c.begin() + reord_end);
 
 			// now coo to csc
 			d_idxvec scc_indptr;
