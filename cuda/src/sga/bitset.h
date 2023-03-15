@@ -1,12 +1,12 @@
 #ifndef BITSET_H
 #define BITSET_H
-void fwd_reach(int m, int *out_row_offsets, int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
-void fwd_reach_lb(int m, int *out_row_offsets, int *out_column_indices, unsigned char *status, int *scc_root);
-void bwd_reach(int m, int *in_row_offsets, int *in_column_indices, unsigned *colors, unsigned char *status);
-void bwd_reach_lb(int m, int *in_row_offsets, int *in_column_indices, unsigned char *status);
-void iterative_trim(int m, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
-void first_trim(int m, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, unsigned char *status);
-void trim2(int m, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
+void fwd_reach(int m, const int *out_row_offsets, const int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
+void fwd_reach_lb(int m, const int *out_row_offsets, const int *out_column_indices, unsigned char *status, int *scc_root);
+void bwd_reach(int m, const int *in_row_offsets, const int *in_column_indices, unsigned *colors, unsigned char *status);
+void bwd_reach_lb(int m, const int *in_row_offsets, const int *in_column_indices, unsigned char *status);
+void iterative_trim(int m, const int *in_row_offsets, const int *in_column_indices, const int *out_row_offsets, const int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
+void first_trim(int m, const int *in_row_offsets, const int *in_column_indices, const int *out_row_offsets, const int *out_column_indices, unsigned char *status);
+void trim2(int m, const int *in_row_offsets, const int *in_column_indices, const int *out_row_offsets, const int *out_column_indices, unsigned *colors, unsigned char *status, int *scc_root);
 bool update(int m, unsigned *colors, unsigned char *status, unsigned *locks, int *scc_root);
 void update_colors(int m, unsigned *colors, unsigned char *status);
 void find_removed_vertices(int m, unsigned char *status, int *mark);

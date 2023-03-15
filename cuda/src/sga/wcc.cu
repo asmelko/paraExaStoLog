@@ -1,6 +1,6 @@
 #include "wcc.h"
 #define debug_wcc 0
-static __global__ void wcc_min(int m, int *row_offsets, int *column_indices, unsigned *colors, unsigned char *status, unsigned *wcc, bool *changed) {
+static __global__ void wcc_min(int m, const int * __restrict__ row_offsets, const int *__restrict__ column_indices, unsigned * __restrict__ colors, unsigned char * __restrict__ status, unsigned * __restrict__ wcc, bool * __restrict__ changed) {
 	int src = blockDim.x * blockIdx.x + threadIdx.x;
 	if (src < m && !is_removed(status[src])) {
 		int row_begin = row_offsets[src];
@@ -35,7 +35,7 @@ static __global__ void update_pivot_color(int m, unsigned *wcc, unsigned *colors
 	int src = blockDim.x * blockIdx.x + threadIdx.x;
 	if (src < m && !is_removed(status[src])) {
 		if (wcc[src] == src) {
-			unsigned new_color = atomicAdd(min_color, 1); 
+			unsigned new_color = atomicAdd(min_color, 1);
 			//printf("wcc: select vertex %d as pivot, old_color=%u, new_color=%u\n", src, colors[src], new_color);
 			colors[src] = new_color;
 			status[src] = 19; // set as a pivot
@@ -54,7 +54,7 @@ static __global__ void update_colors(int m, unsigned *wcc, unsigned *colors, uns
 	}
 }
 
-bool find_wcc(int m, int *d_row_offsets, int *d_column_indices, unsigned *d_colors, unsigned char *d_status, int *d_scc_root, unsigned min_color) {
+bool find_wcc(int m, const int *d_row_offsets, const int *d_column_indices, unsigned *d_colors, unsigned char *d_status, int *d_scc_root, unsigned min_color) {
 	bool h_changed, *d_changed;
 	int iter = 0;
 	unsigned *d_wcc, *d_min_color;

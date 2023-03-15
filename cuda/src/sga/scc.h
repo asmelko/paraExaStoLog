@@ -6,7 +6,7 @@
 /*
 GARDENIA Benchmark Suite
 Kernel: Strongly Connected Components (SCC)
-Author: Xuhao Chen 
+Author: Xuhao Chen
 
 Will return comp array labelling each vertex with a strongly connected component ID
 
@@ -20,12 +20,12 @@ implementation optimizations from Hong et al. [1].
 
 [2] L. Fleischer, B. Hendrickson, and A. Pinar, “On identifying strongly
 	connected components in parallel,” in Proceedings of the 15th IPDPS
-	Workshops, pp. 505–511, 2000. 
+	Workshops, pp. 505–511, 2000.
 */
 
 #define INIT_COLOR 1
 // 2^20 = 1048576
 #define PIVOT_HASH_CONST 1048575
-void SCCSolver(int m, int nnz, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, int *scc_root);
+void SCCSolver(int m, int nnz, const int *in_row_offsets, const int *in_column_indices, const int *out_row_offsets, const int *out_column_indices, int *scc_root);
 void SCCVerifier(int m, int nnz, int *in_row_offsets, int *in_column_indices, int *out_row_offsets, int *out_column_indices, int *scc_root);
 #endif

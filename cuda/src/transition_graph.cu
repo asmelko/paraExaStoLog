@@ -81,16 +81,16 @@ d_idxvec transition_graph::compute_sccs()
 	auto& in_offsets = indptr_;
 	auto& in_indices = rows_;
 
-	d_idxvec out_offset;
+	d_idxvec out_offsets;
 	d_idxvec out_indices;
 	{
-		out_offset.resize(in_offsets.size());
+		out_offsets.resize(in_offsets.size());
 		out_indices.resize(in_indices.size());
 
 		size_t buffersize;
 		CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(
 			context_.cusparse_handle, n, n, nnz, nullptr, in_offsets.data().get(), in_indices.data().get(), nullptr,
-			out_offset.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
+			out_offsets.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
 			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
 
 		thrust::device_vector<float> dummy(nnz);
@@ -98,25 +98,20 @@ d_idxvec transition_graph::compute_sccs()
 		thrust::device_vector<char> buffer(buffersize);
 		CHECK_CUSPARSE(cusparseCsr2cscEx2(
 			context_.cusparse_handle, n, n, nnz, dummy.data().get(), in_offsets.data().get(), in_indices.data().get(),
-			dummy.data().get(), out_offset.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
+			dummy.data().get(), out_offsets.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
 			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
 
 	// print("in_offset ", in_offsets);
 	// print("in_indice ", in_indices);
-	// print("out_offset ", out_offset);
+	// print("out_offset ", out_offsets);
 	// print("out_indice ", out_indices);
 
-	thrust::host_vector<index_t> hin_offsets = in_offsets;
-	thrust::host_vector<index_t> hin_indices = in_indices;
-	thrust::host_vector<index_t> hout_offsets = out_offset;
-	thrust::host_vector<index_t> hout_indices = out_indices;
-	thrust::host_vector<index_t> h_labels(n);
+	d_idxvec labels(n);
 
-	SCCSolver(n, nnz, hin_offsets.data(), hin_indices.data(), hout_offsets.data(), hout_indices.data(),
-			  h_labels.data());
+	SCCSolver(n, nnz, in_offsets.data().get(), in_indices.data().get(), out_offsets.data().get(), out_indices.data().get(), labels.data().get());
 
-	return h_labels;
+	return labels;
 }
 
 void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices, d_idxvec& sizes, d_idxvec& labels,
