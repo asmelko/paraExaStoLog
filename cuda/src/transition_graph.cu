@@ -333,7 +333,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 		constexpr size_t part = 100;
 
-		for (int j = part - 1; j >= 0; j--)
+		for (int j = part - 1; j >= 1; j--)
 		{
 			std::cout << std::endl;
 			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "part" << j
