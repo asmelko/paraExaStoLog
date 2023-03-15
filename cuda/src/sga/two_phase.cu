@@ -94,8 +94,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 			trim2(m, in_row_offsets, in_column_indices, out_row_offsets, out_column_indices, d_colors, d_status,
 				  d_scc_root);
 			printf("Done\n");
-			unsigned min_color =
-				6; // thrust::reduce(thrust::device, d_colors, d_colors + m, 0, thrust::maximum<unsigned>());
+			unsigned min_color = thrust::reduce(thrust::device, d_colors, d_colors + m, 0, thrust::maximum<unsigned>());
 			printf("Start finding WCC...\t");
 			has_pivot = find_wcc(m, out_row_offsets, out_column_indices, d_colors, d_status, d_scc_root, min_color);
 			printf("Done\n");
