@@ -328,14 +328,15 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 		if (scc_size < BIG_SCC_SIZE)
 			continue;
 
+		constexpr size_t part = 100;
 
-		for (int j = 0; j < 10; j++)
+		for (int j = 0; j < part; j++)
 		{
 			std::cout << std::endl;
 			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "part" << j
 					  << std::endl;
 
-			auto reord_end = (scc_size * (j+1)) / 10;
+			auto reord_end = (scc_size * (j+1)) / part;
 
 			d_idxvec scc_rows, scc_cols;
 
@@ -355,7 +356,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			print("scc_reordered_vertices first half before level " + std::to_string(level) + " ",
 				  scc_reordered_vertices, 20);
 
-			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
+			//reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
 										   reordered_vertices.begin() + scc_offsets[i] + reord_end - 1);
