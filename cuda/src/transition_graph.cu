@@ -352,14 +352,14 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
 
-			print("scc_reordered_vertices first half before " + level, scc_reordered_vertices, 20);
+			print("scc_reordered_vertices first half before level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
 
 			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
 										   reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
 
-			print("scc_reordered_vertices first half after " + level, scc_reordered_vertices, 20);
+			print("scc_reordered_vertices first half after level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
 
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
 							reordered_vertices.begin() + scc_offsets[i]);
@@ -386,11 +386,11 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 
 			print("scc_reordered_vertices ", scc_reordered_vertices, 20);
 
-			print("scc_reordered_vertices second half before " + level, scc_reordered_vertices, 20);
+			print("scc_reordered_vertices second half before level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
 
 			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
-			print("scc_reordered_vertices second half after " + level, scc_reordered_vertices, 20);
+			print("scc_reordered_vertices second half after level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half,
 										   reordered_vertices.begin() + scc_offsets[i] + scc_size);
