@@ -329,74 +329,42 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			continue;
 
 
-		auto scc_size_first_half = scc_size / 2;
-		auto scc_size_second_half = scc_size - scc_size_first_half;
-
+		for (int j = 0; j < 10; j++)
 		{
 			std::cout << std::endl;
-			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1 "
-					  << scc_size_first_half << std::endl;
+			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "part" << j
+					  << std::endl;
+
+			auto reord_end = (scc_size * j) / 10;
 
 			d_idxvec scc_rows, scc_cols;
 
 			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
-			take_coo_subset(rows, cols, indptr.size() - 1, scc_size_first_half,
+			take_coo_subset(rows, cols, indptr.size() - 1, reord_end - 1,
 							reordered_vertices.data().get() + scc_offsets[i], scc_rows, scc_cols);
 
 			// now coo to csc
 			d_idxvec scc_indptr;
-			transition_table::coo2csc(context_.cusparse_handle, scc_size_first_half, scc_rows, scc_cols, scc_indptr);
+			transition_table::coo2csc(context_.cusparse_handle, reord_end - 1, scc_rows, scc_cols, scc_indptr);
 
 			index_t scc_term_c;
 			d_idxvec scc_reordered_vertices, scc_scc_offsets;
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
 
-			print("scc_reordered_vertices first half before level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
+			print("scc_reordered_vertices first half before level " + std::to_string(level) + " ",
+				  scc_reordered_vertices, 20);
 
-			//reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
+			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
-										   reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
+										   reordered_vertices.begin() + scc_offsets[i] + reord_end - 1);
 
-			print("scc_reordered_vertices first half after level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
+			print("scc_reordered_vertices first half after level " + std::to_string(level) + " ",
+				  scc_reordered_vertices, 20);
 
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
 							reordered_vertices.begin() + scc_offsets[i]);
-		}
-
-		{
-			std::cout << std::endl;
-			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 2 "
-					  << scc_size_second_half << std::endl;
-
-			d_idxvec scc_rows, scc_cols;
-
-			// now we must take one vertex from the scc to break it down into (hopefully) multiple smaller sccs
-			take_coo_subset(rows, cols, indptr.size() - 1, scc_size_second_half,
-							reordered_vertices.data().get() + scc_offsets[i] + scc_size_first_half, scc_rows, scc_cols);
-
-			// now coo to csc
-			d_idxvec scc_indptr;
-			transition_table::coo2csc(context_.cusparse_handle, scc_size_second_half, scc_rows, scc_cols, scc_indptr);
-
-			index_t scc_term_c;
-			d_idxvec scc_reordered_vertices, scc_scc_offsets;
-			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
-
-			print("scc_reordered_vertices ", scc_reordered_vertices, 20);
-
-			print("scc_reordered_vertices second half before level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
-
-			//reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
-
-			print("scc_reordered_vertices second half after level " + std::to_string(level) + " ", scc_reordered_vertices, 20);
-
-			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half,
-										   reordered_vertices.begin() + scc_offsets[i] + scc_size);
-
-			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
-							reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
 		}
 	}
 }
