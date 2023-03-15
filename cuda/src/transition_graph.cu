@@ -252,8 +252,6 @@ void transition_graph::reorganize_graph(const d_idxvec& indptr, const d_idxvec& 
 
 	// reorganize
 	{
-		scc_sizes[0] = 0;
-
 		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
 		auto reverse_begin = revert_all ? 0 : terminals_count;
 		thrust::reverse(scc_sizes.begin() + reverse_begin + 1, scc_sizes.end());
@@ -318,7 +316,8 @@ void transition_graph::take_coo_subset(const d_idxvec& rows, const d_idxvec& col
 }
 
 void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows, const d_idxvec& cols,
-									d_idxvec& reordered_vertices, const thrust::host_vector<index_t>& scc_offsets)
+									d_idxvec& reordered_vertices, const thrust::host_vector<index_t>& scc_offsets,
+									index_t level)
 {
 	auto sccs_n = scc_offsets.size() - 1;
 
@@ -329,7 +328,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 		if (scc_size < BIG_SCC_SIZE)
 			continue;
 
-		std::cout << "REORDERING scc " << i << " with size " << scc_size << std::endl;
+		std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1" << std::endl << std::endl;
 
 		auto scc_size_first_half = scc_size / 2;
 		auto scc_size_second_half = scc_size - scc_size_first_half;
@@ -349,7 +348,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			d_idxvec scc_reordered_vertices, scc_scc_offsets;
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
-			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
+			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i],
 										   reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half);
@@ -357,6 +356,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			thrust::scatter(reordered_subset_copy.begin(), reordered_subset_copy.end(), scc_reordered_vertices.begin(),
 							reordered_vertices.begin() + scc_offsets[i]);
 		}
+		std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1" << std::endl << std::endl;
 
 		{
 			d_idxvec scc_rows, scc_cols;
@@ -373,7 +373,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			d_idxvec scc_reordered_vertices, scc_scc_offsets;
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
-			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets);
+			reorder_sccs(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, level + 1);
 
 			d_idxvec reordered_subset_copy(reordered_vertices.begin() + scc_offsets[i] + scc_size_first_half,
 										   reordered_vertices.begin() + scc_offsets[i] + scc_size);

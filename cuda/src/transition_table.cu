@@ -3,6 +3,8 @@
 
 #include "transition_table.h"
 
+#include "utils.h"
+
 struct transition_ftor : public thrust::unary_function<index_t, index_t>
 {
 	index_t free_vars[32] = { 0 };
@@ -86,10 +88,16 @@ void transition_table::coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& row
 	CHECK_CUSPARSE(cusparseXcoosortByColumn(handle, n, n, (int)cols.size(), rows.data().get(), cols.data().get(),
 											P.data().get(), buffer.data().get()));
 
+
 	indptr.resize(n + 1);
 
 	CHECK_CUSPARSE(cusparseXcoo2csr(handle, cols.data().get(), (int)rows.size(), n, indptr.data().get(),
 									CUSPARSE_INDEX_BASE_ZERO));
+
+
+	print("coo2csc cols   ", cols, 20);
+	print("coo2csc rows   ", rows, 20);
+	print("coo2csc indptr ", indptr, 20);
 }
 
 void transition_table::construct_table()
