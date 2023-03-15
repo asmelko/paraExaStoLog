@@ -377,8 +377,8 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			reorganize_graph(scc_indptr, scc_rows, scc_cols, scc_reordered_vertices, scc_scc_offsets, scc_term_c, true);
 
 			std::cout << std::endl;
-			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 1 "
-					  << scc_size_first_half << "reordered size" << scc_reordered_vertices.size() << std::endl;
+			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "half 2 "
+					  << scc_size_second_half << "reordered size" << scc_reordered_vertices.size() << std::endl;
 			print("scc_reordered_vertices", scc_reordered_vertices, 20);
 
 
