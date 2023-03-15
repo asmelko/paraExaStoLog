@@ -335,7 +335,7 @@ void transition_graph::reorder_sccs(const d_idxvec& indptr, const d_idxvec& rows
 			std::cout << "REORDERING " << level << " scc " << i << " with size " << scc_size << "part" << j
 					  << std::endl;
 
-			auto reord_end = (scc_size * j) / 10;
+			auto reord_end = (scc_size * (j+1)) / 10;
 
 			d_idxvec scc_rows, scc_cols;
 
