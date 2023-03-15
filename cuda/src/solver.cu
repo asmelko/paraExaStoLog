@@ -245,26 +245,30 @@ void solver::solve_terminal_part()
 		auto nnz = take_submatrix(scc_size, ordered_vertices_.begin() + terminals_offsets_[terminal_scc_idx - 1],
 								  scc_indptr, scc_rows, scc_data);
 
+		thrust::host_vector<index_t> h_scc_indptr = scc_indptr;
+		thrust::host_vector<index_t> h_scc_rows = scc_rows;
+
 		d_idxvec scc_cols(nnz);
 
 		size_t diag_distance_U = 0;
 		size_t diag_distance_L = 0;
 
-		for (int i = 0; i < scc_indptr.size() - 1; i++)
+		for (int i = 0; i < h_scc_indptr.size() - 1; i++)
 		{
-			auto begin = scc_indptr[i];
-			auto end = scc_indptr[i+1];
+			auto begin = h_scc_indptr[i];
+			auto end = h_scc_indptr[i + 1];
 
 			for (int j = begin; j < end; j++)
 			{
-				if (scc_rows[j] < i)
-					diag_distance_L++;
-				if (scc_rows[j] > i)
-					diag_distance_U++;
+				if (h_scc_rows[j] < i)
+					diag_distance_L += i - j;
+				if (h_scc_rows[j] > i)
+					diag_distance_U += j - i;
 			}
 		}
 
-		std::cout << "DET: scc_size " << scc_size << " nnz " << nnz << " L dist " << diag_distance_L << " U dist " << diag_distance_U << std::endl;
+		std::cout << "DET: scc_size " << scc_size << " nnz " << nnz << " L dist " << diag_distance_L << " U dist "
+				  << diag_distance_U << std::endl;
 
 		// this decompresses indptr into cols
 		CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, scc_indptr.data().get(), nnz, scc_size,
