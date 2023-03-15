@@ -1,8 +1,6 @@
 // Copyright 2016, National University of Defense Technology
 // Authors: Xuhao Chen <cxh@illinois.edu>
 #define SCC_VARIANT "two-phase"
-#include <thrust/device_vector.h>
-#include <thrust/host_vector.h>
 #include <thrust/reduce.h>
 
 #include "timer.h"
@@ -124,8 +122,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	t.Stop();
 
 	CUDA_SAFE_CALL(cudaMemcpy(h_status, d_status, sizeof(unsigned char) * m, cudaMemcpyDeviceToHost));
-	thrust::host_vector<int> h_scc_root = thrust::device_vector<int>(d_scc_root, d_scc_root + m);
-	print_statistics(m, h_scc_root.data(), h_status);
+	print_statistics(m, d_scc_root, h_status);
 	printf("\titerations = %d.\n", iter);
 	printf("\truntime [%s] = %f ms.\n", SCC_VARIANT, t.Millisecs());
 	CUDA_SAFE_CALL(cudaFree(d_scc_root));

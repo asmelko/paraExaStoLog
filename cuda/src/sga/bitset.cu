@@ -606,8 +606,10 @@ void find_removed_vertices(int m, unsigned char* status, int* mark)
 	CudaTest("solving kernel update_colors failed");
 }
 
-void print_statistics(int m, int* scc_root, unsigned char* status)
+void print_statistics(int m, int* d_scc_root, unsigned char* status)
 {
+	std::vector<int> scc_root(m);
+	CUDA_SAFE_CALL(cudaMemcpy(scc_root.data(), d_scc_root, sizeof(unsigned) * m, cudaMemcpyDeviceToHost));
 	int total_num_trimmed = 0;
 	int total_num_pivots = 0;
 	int num_trivial_scc = 0;
