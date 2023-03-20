@@ -434,9 +434,9 @@ void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const th
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
-	print("A indptr ", indptr);
-	print("A indice ", rows);
-	print("A data   ", data);
+	// print("A indptr ", indptr);
+	// print("A indice ", rows);
+	// print("A data   ", data);
 
 
 	d_idxvec M_indptr, M_indices;
