@@ -334,6 +334,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     index_t A_rows = A_indptr.size() - 1;
     index_t A_cols = A_indptr.size() - 1;
 
+    std::cout << "splu start " << A_rows << std::endl;
+
     CHECK_CUDA(cudaMalloc(&vert_fill, sizeof(index_t) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&vert_queue, sizeof(index_t) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&vert_mask, sizeof(bool) * total_threads_symb * A_rows));
@@ -348,6 +350,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
         A_rows, A_cols, A_indices.data().get(), A_indptr.data().get(),
         vert_fill, vert_queue, vert_mask, As_row_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
+
+    std::cout << "splu cumsum" << std::endl;
 
     /* From the row nnz, compute row pointers */
     CHECK_CUDA(cudaMemset(As_row_indptr_raw, 0, sizeof(index_t)));
