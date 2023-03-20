@@ -267,7 +267,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         real_t* __restrict__ As_col_data,
         const index_t* __restrict__ As_col_indices,
         const index_t* __restrict__ As_col_indptr,
-        volatile index_t* __restrict__ degree) {
+        index_t* __restrict__ degree) {
 
     const index_t k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= A_cols) {
@@ -302,7 +302,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         }
 
         __threadfence();
-        degree[k]--;
+        atomicAdd(degree + k, -1);
     }
 
     /* Divide column of L by diagonal entry of U */
@@ -313,7 +313,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
 
     /* Complete the factorization and update column degree */
     __threadfence();
-    degree[k]--;
+    atomicAdd(degree + k, -1);
 }
 
 /**
