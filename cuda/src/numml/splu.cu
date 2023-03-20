@@ -104,7 +104,6 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
         index_t U_nnz_row = 0;
 
         index_t queue_end = 0;
-        index_t U_end;
 
         {
             index_t row_end = 0;
@@ -112,20 +111,22 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
             for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
                 const index_t v = A_indices[v_i];
 
-                As_col_indices[row_begin + row_end++] = v;
-                As_col_indices_scratch[row_begin + row_end++] = v;
+                As_col_indices[row_begin + row_end] = v;
+                As_col_indices_scratch[row_begin + row_end] = v;
+                row_end++;
 
                 if (v < row) {
                     vert_queue[thread_idx * A_rows + queue_end++] = v;
                     L_nnz_row++;
                 }
             }
-            U_end = row_end - (L_nnz_row + 1);
+            U_nnz_row = row_end - (L_nnz_row + 1);
         }
 
         // If U_nnz_row is maximal
         if (As_nnz_row - L_nnz_row == A_rows - row) {
-            for (index_t i = row; i < A_rows; i++)
+            printf("row %i is maximal\n", row);
+            for (index_t i = row + 1; i < A_rows; i++)
                 As_col_indices[row_begin + L_nnz_row + i - row] = i;
 
 
@@ -169,11 +170,11 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
             if (idx_after_row != -1) {
                 // merge cols together
                 index_t* new_end = thrust::set_union(thrust::seq,
-                    As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_end,
+                    As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_nnz_row,
                     A_indices + idx_after_row, A_indices + w_end,
                     As_col_indices_scratch + row_begin + L_nnz_row + 1);
 
-                U_end = new_end - (As_col_indices_scratch + row_begin + L_nnz_row + 1);
+                U_nnz_row = new_end - (As_col_indices_scratch + row_begin + L_nnz_row + 1);
 
                 thrust::swap(As_col_indices, As_col_indices_scratch);
             }
@@ -190,7 +191,7 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
             As_row_data[As_idx] = A_data[v_i];
         }
 
-        thrust::copy(thrust::seq, As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_end,
+        thrust::copy(thrust::seq, As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_nnz_row,
             As_col_indices_orig + row_begin + L_nnz_row + 1);
 
         row += blockDim.x * gridDim.x;
