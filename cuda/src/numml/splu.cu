@@ -394,6 +394,10 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     solver::transpose_sparse_matrix(context.cusparse_handle, A_indptr.data().get(), A_indices.data().get(), A_data.data().get(),
                                     A_rows, A_cols, A_data.size(), AsT_indptr, AsT_indices, AsT_data);
 
+    print("At indptr ", AsT_indptr);
+	print("At indice ", AsT_indices);
+	print("At data   ", AsT_data);
+
     std::cout << "splu U nnz" << std::endl;
 
     /* Perform the numeric factorization on the CSC representation */
