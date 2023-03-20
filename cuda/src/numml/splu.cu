@@ -286,7 +286,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         }
 
         /* Busy wait until intermediate results are ready */
-        while (degree[i] > 0);
+        while (degree[i] > 0)
+            __nanosleep(8);
 
         /* Left-looking product */
         for (index_t j_i = i_i + 1; j_i < col_end; j_i++) {
