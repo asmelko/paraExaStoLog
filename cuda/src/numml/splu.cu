@@ -1,6 +1,7 @@
 #include "splu.h"
 
 #include <thrust/execution_policy.h>
+#include <thrust/set_operations.h>
 
 #include "../solver.h"
 #include "../utils.h"
@@ -84,109 +85,112 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
     const index_t* __restrict__ A_indptr,
     index_t* __restrict__ vert_fill,
     index_t* __restrict__ vert_queue,
-    bool* __restrict__ vert_mask,
     real_t* __restrict__ As_row_data,
     index_t* __restrict__ As_col_indices,
+    index_t* __restrict__ As_col_indices_scratch,
     const index_t* __restrict__ As_row_indptr) {
 
     const index_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     index_t row = thread_idx;
 
+    index_t* __restrict__ As_col_indices_orig = As_col_indices;
+
     /* We'll round robin over the columns to save memory */
     while (row < A_rows) {
-        /* Zero out bitmap of visited nodes */
-        for (index_t i = 0; i < A_rows; i++) {
-            vert_fill[thread_idx * A_rows + i] = 0;
-            vert_mask[thread_idx * A_rows + i] = false;
-        }
 
-        /* Set fill array */
-        for (index_t v_i = A_indptr[row]; v_i < A_indptr[row + 1]; v_i++) {
-            const index_t v = A_indices[v_i];
-            vert_fill[thread_idx * A_rows + v] = row;
-            vert_mask[thread_idx * A_rows + v] = true;
-        }
-        __syncthreads();
+        const index_t row_begin = As_row_indptr[row];
+        const index_t As_nnz_row = As_row_indptr[row + 1] - As_row_indptr[row];
+        index_t L_nnz_row = 0;
+        index_t U_nnz_row = 0;
 
-        /* Loop over "threshold" */
-        for (index_t t = 0; t < row; t++) {
-            if (vert_fill[thread_idx * A_rows + t] != row) {
-                continue;
-            }
+        index_t queue_end = 0;
+        index_t U_end;
 
-            index_t queue_start = 0;
-            index_t queue_end = 1;
-            vert_queue[thread_idx * A_rows] = t;
+        {
+            index_t row_end = 0;
+            const index_t v_end = A_indptr[row + 1];
+            for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
+                const index_t v = A_indices[v_i];
 
-            while (queue_start != queue_end) {
-                const index_t u = vert_queue[thread_idx * A_rows + (queue_start % A_rows)];
-                queue_start++;
+                As_col_indices[row_begin + row_end++] = v;
+                As_col_indices_scratch[row_begin + row_end++] = v;
 
-                for (index_t w_i = A_indptr[u]; w_i < A_indptr[u + 1]; w_i++) {
-                    const index_t w = A_indices[w_i];
-                    if (vert_fill[thread_idx * A_rows + w] < row) {
-                        vert_fill[thread_idx * A_rows + w] = row;
-                        if (w > t) {
-                            vert_mask[thread_idx * A_rows + w] = true;
-                        } else {
-                            vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
-                            queue_end++;
-                        }
-                    }
+                if (v < row) {
+                    vert_queue[thread_idx * A_rows + queue_end++] = v;
+                    L_nnz_row++;
                 }
             }
+            U_end = row_end - (L_nnz_row + 1);
         }
-        __syncthreads();
 
-        /* Insert row indices and nonzero values of At_data.
-           This is essentially a union of the two columns, where entries in As *only* are explicitly zero. */
+        // If U_nnz_row is maximal
+        if (As_nnz_row - L_nnz_row == A_rows - row) {
+            for (index_t i = row; i < A_rows; i++)
+                As_col_indices[row_begin + L_nnz_row + i - row] = i;
 
-        index_t As_ptr = 0; /* Current entry in vert_visited array */
-        index_t A_ptr = A_indptr[row]; /* Current index in original A */
-        index_t As_out_ptr = As_row_indptr[row]; /* Current index in output As */
 
-        const index_t As_end = A_cols;
-        const index_t A_end = A_indptr[row + 1];
+            const index_t v_end = A_indptr[row + 1];
+            index_t As_idx = 0;
+            for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
+                const index_t v = A_indices[v_i];
 
-        while (As_ptr < As_end && A_ptr < A_end) {
-            /* Make sure we actually are at a nonzero of As */
-            while (!vert_mask[thread_idx * A_rows + As_ptr]) {
-                As_ptr++;
+                while (As_col_indices[row_begin + As_idx] != v)
+                    As_idx++;
+
+                As_row_data[As_idx] = A_data[v_i];
             }
 
-            const index_t As_col = As_ptr;
-            const index_t A_col = A_indices[A_ptr];
-            if (As_col < A_col) {
-                As_row_data[As_out_ptr] = 0.;
-                As_col_indices[As_out_ptr] = As_col;
+            continue;
+        }
 
-                As_ptr++;
-                As_out_ptr++;
-            } else if (As_col > A_col) {
-                /* This is probably unlikely, since A is a subset of As..?
-                   Nonetheless, let's add it here just in case. */
-                As_row_data[As_out_ptr] = A_data[A_ptr];
-                As_col_indices[As_out_ptr] = A_col;
+        index_t queue_start = 0;
 
-                A_ptr++;
-                As_out_ptr++;
-            } else { /* As_col == A_col */
-                As_row_data[As_out_ptr] = A_data[A_ptr];
-                As_col_indices[As_out_ptr] = A_col;
+        while (queue_start != queue_end) {
+            const index_t u = vert_queue[thread_idx * A_rows + (queue_start % A_rows)];
+            queue_start++;
 
-                A_ptr++;
-                As_ptr++;
-                As_out_ptr++;
+            index_t idx_after_row = -1;
+            const index_t w_end = A_indptr[u + 1];
+            for (index_t w_i = A_indptr[u]; w_i < w_end; w_i++) {
+                const index_t w = A_indices[w_i];
+                if (vert_fill[thread_idx * A_rows + w] < row) {
+                    vert_fill[thread_idx * A_rows + w] = row;
+                    if (w < row) {
+                        vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
+                        queue_end++;
+                    }
+                }
+
+                if (idx_after_row == -1 && w > row)
+                    idx_after_row = w_i;
+            }
+
+            if (idx_after_row != -1) {
+                // merge cols together
+                index_t* new_end = thrust::set_union(thrust::seq,
+                    As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_end,
+                    A_indices + idx_after_row, A_indices + w_end,
+                    As_col_indices_scratch + row_begin + L_nnz_row + 1);
+
+                U_end = new_end - (As_col_indices_scratch + row_begin + L_nnz_row + 1);
+
+                thrust::swap(As_col_indices, As_col_indices_scratch);
             }
         }
-        /* Finish off with rest of As entries */
-        for (; As_ptr < As_end; As_ptr++) {
-            if (vert_mask[thread_idx * A_rows + As_ptr]) {
-                As_row_data[As_out_ptr] = 0.;
-                As_col_indices[As_out_ptr] = As_ptr;
-                As_out_ptr++;
-            }
+
+        const index_t v_end = A_indptr[row + 1];
+        index_t As_idx = 0;
+        for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
+            const index_t v = A_indices[v_i];
+
+            while (As_col_indices[row_begin + As_idx] != v)
+                As_idx++;
+
+            As_row_data[As_idx] = A_data[v_i];
         }
+
+        thrust::copy(thrust::seq, As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_end,
+            As_col_indices_orig + row_begin + L_nnz_row + 1);
 
         row += blockDim.x * gridDim.x;
     }
@@ -270,8 +274,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         }
 
         /* Busy wait until intermediate results are ready */
-        while (degree[i] > 0)
-            __nanosleep(8);
+        while (degree[i] > 0);
 
         /* Left-looking product */
         for (index_t j_i = i_i + 1; j_i < col_end; j_i++) {
@@ -316,7 +319,6 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     const index_t total_threads_symb = num_threads_symb * num_blocks_symb;
     index_t* vert_fill;
     index_t* vert_queue;
-    bool* vert_mask;
     index_t* As_row_nnz;
     index_t* As_row_indptr_raw = As_indptr.data().get();
     index_t* U_col_nnz;
@@ -329,7 +331,6 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
     CHECK_CUDA(cudaMalloc(&vert_fill, sizeof(index_t) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&vert_queue, sizeof(index_t) * total_threads_symb * A_rows));
-    CHECK_CUDA(cudaMalloc(&vert_mask, sizeof(bool) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&As_row_nnz, sizeof(index_t) * A_rows));
     CHECK_CUDA(cudaMalloc(&U_col_nnz, sizeof(index_t) * A_cols));
 
@@ -361,17 +362,20 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     As_indices.resize(As_nnz);
     As_data.resize(As_nnz);
 
+    index_t* As_indices_scratch;
+    CHECK_CUDA(cudaMalloc(&As_indices_scratch, sizeof(index_t) * As_nnz));
+
     std::cout << "splu symbolic populate" << std::endl;
 
     /* Now, fill in As with row indices and entries of A (with explicit zeros where we are anticipating fill) */
     cuda_kernel_splu_symbolic_fact_trav_populate<real_t><<<num_blocks_symb, num_threads_symb>>>(
         A_rows, A_cols, A_data.data().get(), A_indices.data().get(), A_indptr.data().get(),
-        vert_fill, vert_queue, vert_mask, As_data.data().get(), As_indices.data().get(), As_row_indptr_raw);
+        vert_fill, vert_queue, As_data.data().get(), As_indices.data().get(), As_indices_scratch, As_row_indptr_raw);
 
     CHECK_CUDA(cudaDeviceSynchronize());
     CHECK_CUDA(cudaFree(vert_fill));
     CHECK_CUDA(cudaFree(vert_queue));
-    CHECK_CUDA(cudaFree(vert_mask));
+    CHECK_CUDA(cudaFree(As_indices_scratch));
 
     d_idxvec AsT_indptr, AsT_indices;
     d_datvec AsT_data;
