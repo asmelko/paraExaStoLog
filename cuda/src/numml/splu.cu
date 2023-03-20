@@ -409,7 +409,7 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
         A_rows, A_cols, AsT_indices.data().get(), AsT_indptr.data().get(), U_col_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
 
-    print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
+    // print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
 
     std::cout << "splu numeric" << std::endl;
 
