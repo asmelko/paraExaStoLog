@@ -1,3 +1,7 @@
+#include "splu.h"
+
+#include <thrust/execution_policy.h>
+
 #include "../solver.h"
 
 /**
@@ -355,8 +359,10 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
     /* From the row nnz, compute row pointers */
     CHECK_CUDA(cudaMemset(As_row_indptr_raw, 0, sizeof(index_t)));
-    thrust::inclusive_scan(As_row_nnz, As_row_nnz + A_rows, As_row_indptr_raw + 1);
+    thrust::inclusive_scan(thrust::device, As_row_nnz, As_row_nnz + A_rows, As_row_indptr_raw + 1);
     CHECK_CUDA(cudaFree(As_row_nnz));
+
+    std::cout << "splu As nnz copy" << std::endl;
 
     /* Allocate storage for the data and row indices arrays */
     index_t As_nnz;
