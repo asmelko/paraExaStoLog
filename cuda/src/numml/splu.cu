@@ -3,6 +3,7 @@
 #include <thrust/execution_policy.h>
 
 #include "../solver.h"
+#include "../utils.h"
 
 /**
  * Compute the number of nonzero entries in each column of the LU factorization.
@@ -267,7 +268,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         real_t* __restrict__ As_col_data,
         const index_t* __restrict__ As_col_indices,
         const index_t* __restrict__ As_col_indptr,
-        index_t* __restrict__ degree) {
+        volatile index_t* __restrict__ degree) {
 
     const index_t k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= A_cols) {
@@ -301,8 +302,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
             As_col_data[j_i] -= A_ji * A_ik;
         }
 
-        __threadfence();
-        atomicAdd(degree + k, -1);
+        auto old = atomicSub(degree + k, 1);
+        print("degree %i decremented at %i", old, k);
     }
 
     /* Divide column of L by diagonal entry of U */
@@ -312,8 +313,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
     }
 
     /* Complete the factorization and update column degree */
-    __threadfence();
-    atomicAdd(degree + k, -1);
+    auto old = atomicSub(degree + k, 1);
+    print("degree %i decremented at %i", old, k);
 }
 
 /**
@@ -399,6 +400,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     cuda_kernel_count_U_nnz<<<(A_cols + threads_per_block - 1) / threads_per_block, threads_per_block>>>(
         A_rows, A_cols, AsT_indices.data().get(), AsT_indptr.data().get(), U_col_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
+
+    print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
 
     std::cout << "splu numeric" << std::endl;
 
