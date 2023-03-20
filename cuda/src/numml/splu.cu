@@ -268,7 +268,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         real_t* __restrict__ As_col_data,
         const index_t* __restrict__ As_col_indices,
         const index_t* __restrict__ As_col_indptr,
-        index_t* __restrict__ degree) {
+        volatile index_t* __restrict__ degree) {
 
     const index_t k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= A_cols) {
@@ -303,8 +303,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
             As_col_data[j_i] -= A_ji * A_ik;
         }
 
-        auto old = atomicSub(degree + k, 1);
-        printf("degree %i decremented at %i\n", old, k);
+        --degree[k];
+        //printf("degree %i decremented at %i\n", old, k);
     }
 
     printf("thread %i skipped\n", k);
@@ -316,8 +316,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
     }
 
     /* Complete the factorization and update column degree */
-    auto old = atomicSub(degree + k, 1);
-    printf("degree %i decremented at %i\n", old, k);
+    --degree[k];
+    //printf("degree %i decremented at %i\n", old, k);
 }
 
 /**
