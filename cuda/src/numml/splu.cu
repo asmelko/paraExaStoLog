@@ -323,6 +323,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
  */
 void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indices, const d_datvec& A_data, d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data)
 {
+    As_indptr.resize(A_indptr.size());
     /* First, perform the symbolic factorization to determine the sparsity pattern of the filled-in LU factorization
        of A, which we will hereby denote by As.  Note that mask(As) \superset mask(A). */
     const index_t num_threads_symb = 32;
@@ -332,7 +333,7 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     index_t* vert_queue;
     bool* vert_mask;
     index_t* As_row_nnz;
-    index_t* As_row_indptr_raw;
+    index_t* As_row_indptr_raw = As_indptr.data().get();
     index_t* U_col_nnz;
     const int threads_per_block = 512;
 
@@ -345,7 +346,6 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     CHECK_CUDA(cudaMalloc(&vert_queue, sizeof(index_t) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&vert_mask, sizeof(bool) * total_threads_symb * A_rows));
     CHECK_CUDA(cudaMalloc(&As_row_nnz, sizeof(index_t) * A_rows));
-    CHECK_CUDA(cudaMalloc(&As_row_indptr_raw, sizeof(index_t) * (A_rows + 1)));
     CHECK_CUDA(cudaMalloc(&U_col_nnz, sizeof(index_t) * A_cols));
 
     std::cout << "splu symbolic nnz" << std::endl;
@@ -371,7 +371,6 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
     std::cout << "splu As nnz " << As_nnz << std::endl;
 
-    As_indptr.resize(A_rows + 1);
     As_indices.resize(As_nnz);
     As_data.resize(As_nnz);
 
@@ -391,8 +390,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     d_datvec AsT_data;
 
     /* Compute the transpose/csc representation of As so that we have easy column access. */
-    solver::transpose_sparse_matrix(context.cusparse_handle, A_indptr.data().get(), A_indices.data().get(), A_data.data().get(),
-                                    A_rows, A_cols, A_data.size(), AsT_indptr, AsT_indices, AsT_data);
+    solver::transpose_sparse_matrix(context.cusparse_handle, As_indptr.data().get(), As_indices.data().get(), As_data.data().get(),
+                                    A_rows, A_cols, As_data.size(), AsT_indptr, AsT_indices, AsT_data);
 
     print("At indptr ", AsT_indptr);
 	print("At indice ", AsT_indices);
