@@ -303,7 +303,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         }
 
         auto old = atomicSub(degree + k, 1);
-        print("degree %i decremented at %i", old, k);
+        printf("degree %i decremented at %i", old, k);
     }
 
     /* Divide column of L by diagonal entry of U */
@@ -314,7 +314,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
 
     /* Complete the factorization and update column degree */
     auto old = atomicSub(degree + k, 1);
-    print("degree %i decremented at %i", old, k);
+    printf("degree %i decremented at %i", old, k);
 }
 
 /**
