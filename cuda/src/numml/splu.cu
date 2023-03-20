@@ -125,7 +125,7 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
 
         // If U_nnz_row is maximal
         if (As_nnz_row - L_nnz_row == A_rows - row) {
-            printf("row %i is maximal\n", row);
+            //printf("row %i is maximal\n", row);
             for (index_t i = row + 1; i < A_rows; i++)
                 As_col_indices[row_begin + L_nnz_row + i - row] = i;
 
@@ -292,7 +292,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
             As_col_data[j_i] -= A_ji * A_ik;
         }
 
-        printf("thread %i decremented from %i\n", k, degree[k]);
+        //printf("thread %i decremented from %i\n", k, degree[k]);
         __threadfence();
         degree[k]--;
     }
@@ -303,7 +303,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         As_col_data[i] /= A_kk;
     }
 
-    printf("thread %i decremented from %i\n", k, degree[k]);
+    //printf("thread %i decremented from %i\n", k, degree[k]);
     /* Complete the factorization and update column degree */
     __threadfence();
     degree[k]--;
@@ -388,9 +388,9 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     solver::transpose_sparse_matrix(context.cusparse_handle, As_indptr.data().get(), As_indices.data().get(), As_data.data().get(),
                                     A_rows, A_cols, As_data.size(), AsT_indptr, AsT_indices, AsT_data);
 
-    print("A indptr ", As_indptr);
-	print("A indice ", As_indices);
-	print("A data   ", As_data);
+    // print("A indptr ", As_indptr);
+	// print("A indice ", As_indices);
+	// print("A data   ", As_data);
 
     // print("At indptr ", AsT_indptr);
 	// print("At indice ", AsT_indices);
@@ -403,7 +403,7 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
         A_rows, A_cols, AsT_indices.data().get(), AsT_indptr.data().get(), U_col_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
 
-    print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
+    //print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
 
     std::cout << "splu numeric" << std::endl;
 
