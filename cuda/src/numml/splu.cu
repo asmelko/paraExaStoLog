@@ -140,6 +140,7 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
                 As_row_data[As_idx] = A_data[v_i];
             }
 
+            row += blockDim.x * gridDim.x;
             continue;
         }
 
