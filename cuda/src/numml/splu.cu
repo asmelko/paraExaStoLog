@@ -360,7 +360,10 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
     /* Allocate storage for the data and row indices arrays */
     index_t As_nnz;
-    CHECK_CUDA(cudaMemcpy(&As_nnz, &(As_row_indptr_raw[A_rows]), sizeof(index_t), cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(&As_nnz, As_row_indptr_raw + A_rows, sizeof(index_t), cudaMemcpyDeviceToHost));
+
+    std::cout << "splu As nnz " << << As_nnz << std::endl;
+
     As_indptr.resize(A_rows + 1);
     As_indices.resize(As_nnz);
     As_data.resize(As_nnz);
