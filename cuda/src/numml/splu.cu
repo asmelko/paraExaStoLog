@@ -279,7 +279,6 @@ __global__ void cuda_kernel_splu_numeric_sflu(
     const index_t col_end = As_col_indptr[k + 1];
     for (index_t i_i = As_col_indptr[k]; i_i < col_end; i_i++) {
         const index_t i = As_col_indices[i_i];
-        printf("thread %i reading col %i\n", k, i);
         if (i == k) {
             /* Stop once we get to the diagonal. */
             diag_idx = i_i;
@@ -303,11 +302,9 @@ __global__ void cuda_kernel_splu_numeric_sflu(
             As_col_data[j_i] -= A_ji * A_ik;
         }
 
-        --degree[k];
-        //printf("degree %i decremented at %i\n", old, k);
+        __threadfence();
+        degree[k]--;
     }
-
-    printf("thread %i skipped\n", k);
 
     /* Divide column of L by diagonal entry of U */
     const scalar_t A_kk = As_col_data[diag_idx];
@@ -316,8 +313,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
     }
 
     /* Complete the factorization and update column degree */
-    --degree[k];
-    //printf("degree %i decremented at %i\n", old, k);
+    __threadfence();
+    degree[k]--;
 }
 
 /**
