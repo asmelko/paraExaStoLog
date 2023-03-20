@@ -4,6 +4,7 @@
 
 #include <thrust/adjacent_difference.h>
 #include <thrust/execution_policy.h>
+#include <thrust/gather.h>
 #include <thrust/partition.h>
 
 #include "numml/splu.h"
@@ -429,14 +430,43 @@ void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, 
 	CHECK_CUSPARSE(cusparseDestroySpMat(out_descr));
 }
 
-void solver::solve_system(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
-						  int cols, int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
+void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
+						  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 						  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 						  thrust::device_vector<float>& x_data)
 {
 	// print("A indptr ", indptr);
 	// print("A indice ", rows);
 	// print("A data   ", data);
+
+	{
+		cusparseMatDescr_t descr_N = 0;
+		size_t pBufferSizeInBytes;
+
+		CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
+		CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
+		CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
+
+		// step 1: allocate buffer
+		CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
+													  rows.data().get(), &pBufferSizeInBytes));
+		thrust::device_vector<char> buffer(pBufferSizeInBytes);
+
+		// step 2: setup permutation vector P to identity
+		d_idxvec P(nnz);
+		CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
+
+		// step 3: sort CSR format
+		CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
+										rows.data().get(), P.data().get(), buffer.data().get()));
+
+		// step 4: gather sorted csrVal
+		d_datvec sorted_data(data.size());
+		thrust::gather(P.begin(), P.end(), data.begin(), sorted_data.begin());
+		data = std::move(sorted_data);
+
+		CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_N));
+	}
 
 
 	d_idxvec M_indptr, M_indices;
