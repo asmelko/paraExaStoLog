@@ -54,7 +54,7 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
                     vert_fill[thread_idx * A_rows + w] = row;
                     if (w > row)
                         As_nnz_row++;
-                    if (w < u) {
+                    if (w < row) {
                         vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
                         queue_end++;
                     }
