@@ -53,11 +53,12 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
                 const index_t w = A_indices[w_i];
                 if (vert_fill[thread_idx * A_rows + w] < row) {
                     vert_fill[thread_idx * A_rows + w] = row;
-                    if (w > row)
+                    if (w > u) {
                         As_nnz_row++;
-                    if (w < row) {
-                        vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
-                        queue_end++;
+                        if (w < row) {
+                            vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
+                            queue_end++;
+                        }
                     }
                 }
             }
@@ -100,13 +101,11 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
 
         const index_t row_begin = As_row_indptr[row];
         const index_t As_nnz_row = As_row_indptr[row + 1] - As_row_indptr[row];
-        index_t L_nnz_row = 0;
-        index_t U_nnz_row = 0;
+        index_t row_end = 0;
 
         index_t queue_end = 0;
 
         {
-            index_t row_end = 0;
             const index_t v_end = A_indptr[row + 1];
             for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
                 const index_t v = A_indices[v_i];
@@ -117,32 +116,8 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
 
                 if (v < row) {
                     vert_queue[thread_idx * A_rows + queue_end++] = v;
-                    L_nnz_row++;
                 }
             }
-            U_nnz_row = row_end - (L_nnz_row + 1);
-        }
-
-        // If U_nnz_row is maximal
-        if (As_nnz_row - L_nnz_row == A_rows - row) {
-            //printf("row %i is maximal\n", row);
-            for (index_t i = row + 1; i < A_rows; i++)
-                As_col_indices[row_begin + L_nnz_row + i - row] = i;
-
-
-            const index_t v_end = A_indptr[row + 1];
-            index_t As_idx = 0;
-            for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
-                const index_t v = A_indices[v_i];
-
-                while (As_col_indices[row_begin + As_idx] != v)
-                    As_idx++;
-
-                As_row_data[As_idx] = A_data[v_i];
-            }
-
-            row += blockDim.x * gridDim.x;
-            continue;
         }
 
         index_t queue_start = 0;
@@ -157,24 +132,24 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
                 const index_t w = A_indices[w_i];
                 if (vert_fill[thread_idx * A_rows + w] < row) {
                     vert_fill[thread_idx * A_rows + w] = row;
-                    if (w < row) {
+                    if (w < row && w > u) {
                         vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
                         queue_end++;
                     }
                 }
 
-                if (idx_after_row == -1 && w > row)
+                if (idx_after_row == -1 && w > u)
                     idx_after_row = w_i;
             }
 
             if (idx_after_row != -1) {
                 // merge cols together
                 index_t* new_end = thrust::set_union(thrust::seq,
-                    As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_nnz_row,
+                    As_col_indices + row_begin, As_col_indices + row_begin + row_end,
                     A_indices + idx_after_row, A_indices + w_end,
-                    As_col_indices_scratch + row_begin + L_nnz_row + 1);
+                    As_col_indices_scratch + row_begin);
 
-                U_nnz_row = new_end - (As_col_indices_scratch + row_begin + L_nnz_row + 1);
+                U_nnz_row = new_end - (As_col_indices_scratch + row_begin);
 
                 thrust::swap(As_col_indices, As_col_indices_scratch);
             }
@@ -191,8 +166,8 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
             As_row_data[As_idx] = A_data[v_i];
         }
 
-        thrust::copy(thrust::seq, As_col_indices + row_begin + L_nnz_row + 1, As_col_indices + row_begin + L_nnz_row + 1 + U_nnz_row,
-            As_col_indices_orig + row_begin + L_nnz_row + 1);
+        thrust::copy(thrust::seq, As_col_indices + row_begin, As_col_indices + row_begin + row_end,
+            As_col_indices_orig + row_begin);
 
         row += blockDim.x * gridDim.x;
     }
