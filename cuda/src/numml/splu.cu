@@ -341,6 +341,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     CHECK_CUDA(cudaMalloc(&As_row_indptr_raw, sizeof(index_t) * (A_rows + 1)));
     CHECK_CUDA(cudaMalloc(&U_col_nnz, sizeof(index_t) * A_cols));
 
+    std::cout << "splu symbolic nnz" << std::endl;
+
     /* First, find number of nonzeros in the rows of M=(L+U) (with fill) */
     cuda_kernel_splu_symbolic_fact_trav_nnz<<<num_blocks_symb, num_threads_symb>>>(
         A_rows, A_cols, A_indices.data().get(), A_indptr.data().get(),
@@ -359,6 +361,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     As_indices.resize(As_nnz);
     As_data.resize(As_nnz);
 
+    std::cout << "splu symbolic populate" << std::endl;
+
     /* Now, fill in As with row indices and entries of A (with explicit zeros where we are anticipating fill) */
     cuda_kernel_splu_symbolic_fact_trav_populate<real_t><<<num_blocks_symb, num_threads_symb>>>(
         A_rows, A_cols, A_data.data().get(), A_indices.data().get(), A_indptr.data().get(),
@@ -376,10 +380,14 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     solver::transpose_sparse_matrix(context.cusparse_handle, A_indptr.data().get(), A_indices.data().get(), A_data.data().get(),
                                     A_rows, A_cols, A_data.size(), AsT_indptr, AsT_indices, AsT_data);
 
+    std::cout << "splu U nnz" << std::endl;
+
     /* Perform the numeric factorization on the CSC representation */
     cuda_kernel_count_U_nnz<<<(A_cols + threads_per_block - 1) / threads_per_block, threads_per_block>>>(
         A_rows, A_cols, AsT_indices.data().get(), AsT_indptr.data().get(), U_col_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
+
+    std::cout << "splu numeric" << std::endl;
 
     cuda_kernel_splu_numeric_sflu<real_t><<<(A_cols + threads_per_block - 1) / threads_per_block, threads_per_block>>>(
         A_rows, A_cols,
