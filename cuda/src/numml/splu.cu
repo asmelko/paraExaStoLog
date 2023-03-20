@@ -19,7 +19,6 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
     const index_t* __restrict__ A_indptr,
     index_t* __restrict__ vert_fill,
     index_t* __restrict__ vert_queue,
-    bool* __restrict__ vert_mask,
     index_t* __restrict__ As_nnz) {
 
     const index_t thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -27,22 +26,18 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
 
     /* We'll round robin over the columns to save memory */
     while (row < A_rows) {
-        /* Zero out bitmap of visited nodes */
-        for (index_t i = 0; i < A_cols; i++) {
-            vert_fill[thread_idx * A_cols + i] = 0;
-            vert_mask[thread_idx * A_cols + i] = false;
-        }
+        index_t As_nnz_row = 0;
 
         /* Set fill array */
-        for (index_t v_i = A_indptr[row]; v_i < A_indptr[row + 1]; v_i++) {
+        const index_t v_end = A_indptr[row + 1];
+        for (index_t v_i = A_indptr[row]; v_i < v_end; v_i++) {
             const index_t v = A_indices[v_i];
-            vert_fill[thread_idx * A_cols + v] = row;
-            vert_mask[thread_idx * A_cols + v] = true;
+            vert_fill[thread_idx * A_rows + v] = row;
+            As_nnz_row++;
         }
-        __syncthreads();
 
         /* Loop over "threshold" */
-        for (index_t t = 0; t < row; t++) {
+        for (index_t t = 0; t < row; t++) { // TODO: long loop
             if (vert_fill[thread_idx * A_rows + t] != row) {
                 continue;
             }
@@ -55,13 +50,13 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
                 const index_t u = vert_queue[thread_idx * A_rows + (queue_start % A_rows)];
                 queue_start++;
 
-                for (index_t w_i = A_indptr[u]; w_i < A_indptr[u + 1]; w_i++) {
+                const index_t w_end = A_indptr[u + 1];
+                for (index_t w_i = A_indptr[u]; w_i < w_end; w_i++) {
                     const index_t w = A_indices[w_i];
                     if (vert_fill[thread_idx * A_rows + w] < row) {
                         vert_fill[thread_idx * A_rows + w] = row;
-                        if (w > t) {
-                            vert_mask[thread_idx * A_rows + w] = true;
-                        } else {
+                        As_nnz_row++;
+                        if (w < t) {
                             vert_queue[thread_idx * A_rows + (queue_end % A_rows)] = w;
                             queue_end++;
                         }
@@ -69,16 +64,8 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_nnz(
                 }
             }
         }
-        __syncthreads();
 
         /* Count number of nonzeros in L and U in the current column */
-        index_t As_nnz_row = 0;
-        for (index_t i = 0; i < A_cols; i++) {
-            if (vert_mask[thread_idx * A_rows + i]) {
-                As_nnz_row++;
-                vert_mask[thread_idx * A_rows + i] = false;
-            }
-        }
         As_nnz[row] = As_nnz_row;
         row += blockDim.x * gridDim.x;
     }
@@ -351,10 +338,12 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
     std::cout << "splu symbolic nnz" << std::endl;
 
+    cudaMemset(vert_fill, 0, sizeof(index_t) * total_threads_symb * A_rows);
+
     /* First, find number of nonzeros in the rows of M=(L+U) (with fill) */
     cuda_kernel_splu_symbolic_fact_trav_nnz<<<num_blocks_symb, num_threads_symb>>>(
         A_rows, A_cols, A_indices.data().get(), A_indptr.data().get(),
-        vert_fill, vert_queue, vert_mask, As_row_nnz);
+        vert_fill, vert_queue, As_row_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
 
     std::cout << "splu cumsum" << std::endl;
