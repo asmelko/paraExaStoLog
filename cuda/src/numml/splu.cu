@@ -279,6 +279,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
     const index_t col_end = As_col_indptr[k + 1];
     for (index_t i_i = As_col_indptr[k]; i_i < col_end; i_i++) {
         const index_t i = As_col_indices[i_i];
+        printf("thread %i reading col %i", k, i);
         if (i == k) {
             /* Stop once we get to the diagonal. */
             diag_idx = i_i;
@@ -305,6 +306,8 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         auto old = atomicSub(degree + k, 1);
         printf("degree %i decremented at %i", old, k);
     }
+
+    printf("thread %i skipped", k);
 
     /* Divide column of L by diagonal entry of U */
     const scalar_t A_kk = As_col_data[diag_idx];
