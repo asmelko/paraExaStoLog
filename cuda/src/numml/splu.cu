@@ -291,6 +291,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
             As_col_data[j_i] -= A_ji * A_ik;
         }
 
+        printf("thread %i decremented from %i\n", k, degree[k]);
         __threadfence();
         degree[k]--;
     }
@@ -301,6 +302,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(
         As_col_data[i] /= A_kk;
     }
 
+    printf("thread %i decremented from %i\n", k, degree[k]);
     /* Complete the factorization and update column degree */
     __threadfence();
     degree[k]--;
@@ -400,7 +402,7 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
         A_rows, A_cols, AsT_indices.data().get(), AsT_indptr.data().get(), U_col_nnz);
     CHECK_CUDA(cudaDeviceSynchronize());
 
-    // print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
+    print("splu degrees ", d_idxvec(U_col_nnz, U_col_nnz + A_cols));
 
     std::cout << "splu numeric" << std::endl;
 
