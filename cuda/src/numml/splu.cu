@@ -149,7 +149,7 @@ __global__ void cuda_kernel_splu_symbolic_fact_trav_populate(
                     A_indices + idx_after_row, A_indices + w_end,
                     As_col_indices_scratch + row_begin);
 
-                U_nnz_row = new_end - (As_col_indices_scratch + row_begin);
+                row_end = new_end - (As_col_indices_scratch + row_begin);
 
                 thrust::swap(As_col_indices, As_col_indices_scratch);
             }
