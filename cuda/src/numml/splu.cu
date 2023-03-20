@@ -393,6 +393,10 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
     solver::transpose_sparse_matrix(context.cusparse_handle, As_indptr.data().get(), As_indices.data().get(), As_data.data().get(),
                                     A_rows, A_cols, As_data.size(), AsT_indptr, AsT_indices, AsT_data);
 
+    print("A indptr ", As_indptr);
+	print("A indice ", As_indices);
+	print("A data   ", As_data);
+
     print("At indptr ", AsT_indptr);
 	print("At indice ", AsT_indices);
 	print("At data   ", AsT_data);
