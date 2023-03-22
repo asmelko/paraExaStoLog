@@ -7,21 +7,254 @@
 #include "../utils.h"
 #include "splu.h"
 
+__device__ index_t get_merging_data(const volatile index_t* volatile* __restrict__ As_rows,
+									volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ As_indices,
+									index_t* merging_rows_indices, const index_t rows_number)
+{
+	index_t merging_data = -1;
+	for (index_t row_i = 0; row_i < rows_number; row_i++)
+	{
+		const index_t row = As_indices[row_i];
+		const index_t idx = merging_rows_indices[row_i];
+		const index_t size = As_nnz[row];
+
+		if (idx == size)
+			continue;
+
+		const index_t data = As_rows[row][idx];
+
+		if (data < merging_data || merging_data == -1)
+			merging_data = data;
+	}
+
+	return merging_data;
+}
+
+__device__ index_t increment_merging_data(const volatile index_t* volatile* __restrict__ As_rows,
+										  volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ As_indices,
+										  index_t* merging_rows_indices, const index_t rows_number,
+										  const index_t data_to_remove)
+{
+	for (index_t row_i = 0; row_i < rows_number; row_i++)
+	{
+		const index_t row = As_indices[row_i];
+		const index_t idx = merging_rows_indices[row_i];
+		const index_t size = As_nnz[row];
+
+		if (idx == size)
+			continue;
+
+		const index_t data = As_rows[row][idx];
+
+		if (data == data_to_remove)
+			merging_rows_indices[row_i] = idx + 1;
+	}
+
+	return;
+}
+
+__device__ index_t kway_merge_size(const index_t this_row, const index_t* __restrict__ my_row,
+								   const index_t my_row_size, volatile const index_t* volatile* __restrict__ As_rows,
+								   index_t* __restrict__ As_nnz, const index_t* __restrict__ As_indices,
+								   index_t* merging_rows_indices, const index_t rows_number, index_t& L_size)
+{
+	index_t size = 0;
+	L_size = 0;
+
+	index_t my_row_idx = 0;
+
+	// set indices after row
+	for (index_t row_i = 0; row_i < rows_number; row_i++)
+	{
+		const index_t row = As_indices[row_i];
+		index_t idx = 0;
+		const index_t row_size = As_nnz[row];
+
+
+		while (idx < row_size && As_rows[row][idx] <= row)
+		{
+			idx++;
+		}
+
+		merging_rows_indices[row_i] = idx;
+	}
+
+	// select smallest merging_data
+
+	index_t l_data;
+	while (my_row_idx < my_row_size)
+	{
+		l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
+		index_t r_data = my_row[my_row_idx];
+
+		if (l_data == -1)
+			break;
+
+		if (r_data == l_data)
+		{
+			my_row_idx++;
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+		}
+		else if (l_data < r_data)
+		{
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+
+			if (l_data < this_row)
+				L_size++;
+		}
+		else
+		{
+			my_row_idx++;
+		}
+		size++;
+	}
+
+	// merging rows are all merged
+	if (l_data == -1)
+	{
+		return size + my_row_size - my_row_idx;
+	}
+
+	if (my_row_idx == my_row_size)
+	{
+		while (l_data != -1)
+		{
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+			l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
+			size++;
+
+			if (l_data < this_row)
+				L_size++;
+		}
+	}
+
+	return size;
+}
+
+__device__ void kway_merge(const index_t this_row, const index_t* __restrict__ my_row, const index_t my_row_size,
+						   const volatile index_t* volatile* __restrict__ As_rows, index_t* __restrict__ As_nnz,
+						   const index_t* __restrict__ As_indices, index_t* merging_rows_indices,
+						   const index_t rows_number, index_t* my_new_row)
+{
+	index_t offset = 0;
+
+	index_t my_row_idx = 0;
+
+	// set indices after row
+	for (index_t row_i = 0; row_i < rows_number; row_i++)
+	{
+		const index_t row = As_indices[row_i];
+		index_t idx = 0;
+		const index_t size = As_nnz[row];
+
+		while (idx < size && As_rows[row][idx] <= row)
+		{
+			idx++;
+		}
+
+		merging_rows_indices[row_i] = idx;
+	}
+
+	// select smallest merging_data
+
+	index_t l_data;
+	while (my_row_idx < my_row_size)
+	{
+		l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
+		index_t r_data = my_row[my_row_idx];
+
+		if (l_data == -1)
+			break;
+
+		if (r_data == l_data)
+		{
+			my_row_idx++;
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+
+			my_new_row[offset++] = r_data;
+		}
+		else if (l_data < r_data)
+		{
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+
+			my_new_row[offset++] = l_data;
+		}
+		else
+		{
+			my_row_idx++;
+
+			my_new_row[offset++] = r_data;
+		}
+	}
+
+	// merging rows are all merged
+	if (l_data == -1)
+	{
+		for (index_t i = my_row_idx; i < my_row_size; i++)
+			my_new_row[offset++] = my_row[my_row_idx];
+	}
+
+	if (my_row_idx == my_row_size)
+	{
+		while (l_data != -1)
+		{
+			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
+			l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
+			my_new_row[offset++] = l_data;
+		}
+	}
+}
+
+__device__ index_t merge_size(const index_t* __restrict__ l, const index_t l_size, const index_t* __restrict__ r,
+							  const index_t r_size)
+{
+	index_t l_idx = 0;
+	index_t r_idx = 0;
+
+	index_t r_data, l_data;
+
+	index_t size = 0;
+
+	while (l_idx < l_size && r_idx < r_size)
+	{
+		index_t r_data = r[r_idx];
+		index_t l_data = l[l_idx];
+
+		if (r_data == l_data)
+		{
+			r_idx++;
+			l_idx++;
+		}
+		else if (l_data < r_data)
+		{
+			l_idx++;
+		}
+		else
+		{
+			r_idx++;
+		}
+		size++;
+	}
+
+	return size + (l_size - l_idx) + (r_size - r_idx);
+}
 
 __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index_t* __restrict__ A_indices,
-											   const index_t* __restrict__ A_indptr,
-											   volatile index_t* __restrict__ As_nnz,
-											   index_t * volatile* __restrict__ As_indices,
-											   volatile index_t* __restrict__ degree)
+											   const index_t* __restrict__ A_indptr, index_t* __restrict__ As_nnz,
+											   index_t** __restrict__ As_indices, volatile index_t* __restrict__ degree)
 {
 	const index_t row = blockIdx.x * blockDim.x + threadIdx.x;
 
 
 	if (row >= A_rows)
 		return;
-	
+
 	index_t row_size;
 	index_t* row_indices;
+
+	index_t scratchpad_alloc_size = 0;
+	index_t scratchpad_size = 0;
+	index_t* scratchpad = nullptr;
 
 	// fill As_indices
 	{
@@ -32,65 +265,97 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		if (row_indices == NULL)
 			printf("thread %i error row size %i \n", row, row_size);
 
+		for (index_t i = 0; i < row_size; i++)
+		{
+			index_t col = (A_indices + row_indices_begin)[i];
+			row_indices[i] = col;
+			if (col < row)
+				scratchpad_alloc_size++;
+		}
 
-		thrust::copy(thrust::seq, A_indices + row_indices_begin, A_indices + row_indices_begin + row_size, row_indices);
+		if (scratchpad_alloc_size != 0)
+		{
+			scratchpad = (index_t*)malloc(sizeof(index_t) * scratchpad_alloc_size * 2);
+			if (scratchpad == NULL)
+				printf("thread %i error row size %i \n", row, scratchpad_alloc_size);
+
+			thrust::copy(thrust::seq, row_indices, row_indices + scratchpad_alloc_size, scratchpad);
+		}
+		scratchpad_size = scratchpad_alloc_size;
 	}
+
 
 	// printf("thread %i coppied \n", row);
 
-	for (index_t index_i = 0; index_i < row_size; index_i++)
-	{
-		const index_t index = row_indices[index_i];
+	index_t iteration = 0;
 
-		if (index >= row)
+	while (scratchpad_size != 0)
+	{
+		iteration++;
+		for (index_t index_i = 0; index_i < scratchpad_size; index_i++)
+		{
+			const index_t index = scratchpad[index_i];
+
+			while (degree[index] != 0)
+				;
+		}
+
+		index_t new_scratchpad_size;
+		index_t new_size = kway_merge_size(row, row_indices, row_size, As_indices, As_nnz, scratchpad,
+										   scratchpad + scratchpad_size, scratchpad_size, new_scratchpad_size);
+
+		if (new_size == row_size)
 			break;
 
-		while (degree[index] != 0)
-			;
+		if (new_size < row_size)
+			printf("iteration %i of row %i new size %i old size %i\n", iteration, row, new_size, row_size);
 
-		const index_t row_to_merge_size = As_nnz[index];
-		volatile index_t* row_to_merge_indices_v = As_indices[index];
-		index_t* row_to_merge_indices = As_indices[index];
-
-		for (int i = 0; i < row_to_merge_size; i++)
-			row_to_merge_indices[i] = row_to_merge_indices_v[i];
-
-		if (row_to_merge_indices == 0)
-			printf("error at row %i index %i \n", row, index);
-		// printf("thread %i merging row %i with size %i\n", row, last_visited_index, row_to_merge_size);
-
+		// update row
 		{
-			index_t row_to_merge_index_i = 0;
+			index_t* row_indices_new = (index_t*)malloc(sizeof(index_t) * new_size);
 
-			// forward merging row after the "index" column
-			while (row_to_merge_index_i < row_to_merge_size && row_to_merge_indices[row_to_merge_index_i] <= index)
+			if (row_indices_new == NULL)
+				printf("thread %i error scratchrow size %i \n", row, new_size);
+
+			kway_merge(row, row_indices, row_size, As_indices, As_nnz, scratchpad, scratchpad + scratchpad_size,
+					   scratchpad_size, row_indices_new);
+
+			// update scratchpad
 			{
-				row_to_merge_index_i++;
+				if (new_scratchpad_size > scratchpad_alloc_size)
+				{
+					scratchpad_alloc_size = new_scratchpad_size;
+					free(scratchpad);
+					scratchpad = (index_t*)malloc(sizeof(index_t) * scratchpad_alloc_size * 2);
+					if (scratchpad == NULL)
+						printf("thread %i error row size %i \n", row, scratchpad_alloc_size);
+				}
+
+
+				thrust::set_difference(thrust::seq, row_indices_new,
+									   row_indices_new + scratchpad_size + new_scratchpad_size, row_indices,
+									   row_indices + scratchpad_size, scratchpad);
+
+				printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, new_scratchpad_size,
+					   scratchpad_size);
+
+				scratchpad_size = new_scratchpad_size;
 			}
 
-			if (row_to_merge_index_i == row_to_merge_size)
-				continue;
-
-			// TODO: count how many data will be required
-			const index_t new_merge_size_upper_bound = row_to_merge_size + row_size;
-
-			index_t* row_indices_scratch = (index_t*)malloc(sizeof(index_t) * new_merge_size_upper_bound);
-
-			if (row_indices_scratch == NULL)
-				printf("thread %i error scratchrow size %i \n", row, new_merge_size_upper_bound);
-
-			index_t* merge_end = thrust::set_union(thrust::seq, row_to_merge_indices + row_to_merge_index_i,
-												   row_to_merge_indices + row_to_merge_size, row_indices,
-												   row_indices + row_size, row_indices_scratch);
-
-			// update row size and indices 
-			row_size = merge_end - row_indices_scratch;
+			// update row size and indices
+			row_size = new_size;
 			free(row_indices);
-			row_indices = row_indices_scratch;
+			row_indices = row_indices_new;
 		}
 	}
 
-	//printf("writing %i %p\n", row, row_indices);
+	if (scratchpad)
+		free(scratchpad);
+
+	// if (new_cols > 0)
+	//	printf("row %i had %i new cols\n", row, (int)new_cols);
+
+	// printf("writing %i %p\n", row, row_indices);
 	As_nnz[row] = row_size;
 	As_indices[row] = row_indices;
 
@@ -131,7 +396,6 @@ __global__ void cuda_kernel_splu_symbolic_populate(const index_t A_rows, const i
 	A_indices += orig_begin;
 	A_data += orig_begin;
 
-	const index_t v_end = A_indptr[row + 1];
 	index_t As_idx = 0;
 	for (index_t i = 0; i < orig_row_size; i++)
 	{
@@ -319,6 +583,8 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 
 	As_indices.resize(As_nnz);
 	As_data.resize(As_nnz);
+
+	std::cout << "splu nnz " << As_nnz << std::endl;
 
 	std::cout << "splu symbolic populate" << std::endl;
 

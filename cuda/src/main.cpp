@@ -1,14 +1,25 @@
 #include "model.h"
-#include "transition_table.h"
+#include "solver.h"
 
 int main(int argc, char** argv)
 {
-	std::vector<std::string> args(argv + 1, argv + argc);
-
 	model_builder builder;
-	auto model = builder.construct_model(args[0]);
+	auto model = builder.construct_model("data/krasmodel15vars.bnet");
 
-	cu_context c;
+	cu_context context;
 
-	transition_table table(c, std::move(model));
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(
+		model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
+
+	solver s(context, table, std::move(g), std::move(st));
+
+	s.solve();
 }
