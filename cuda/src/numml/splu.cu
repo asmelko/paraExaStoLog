@@ -36,7 +36,6 @@ __device__ index_t increment_merging_data(index_t* volatile* __restrict__ As_row
 										  index_t* __restrict__ merging_rows_indices, const index_t rows_number,
 										  const index_t data_to_remove)
 {
-	bool found = false;
 	for (index_t row_i = 0; row_i < rows_number; row_i++)
 	{
 		const index_t row = As_indices[row_i];
@@ -50,22 +49,8 @@ __device__ index_t increment_merging_data(index_t* volatile* __restrict__ As_row
 		const index_t data = row_indices[idx];
 
 		if (data == data_to_remove)
-		{
-			found = true;
 			merging_rows_indices[row_i] = idx + 1;
-
-			if (idx + 1 != size)
-			{
-				const index_t data2 = row_indices[idx + 1];
-
-				if (data2 < data)
-					printf("nonmonotony error\n");
-			}
-		}
 	}
-
-	if (!found)
-		printf("find error\n");
 }
 
 __device__ void set_indices(index_t* volatile* __restrict__ As_rows, volatile index_t* __restrict__ As_nnz,
@@ -108,8 +93,6 @@ __device__ index_t kway_merge_size(const index_t this_row, const index_t* __rest
 	{
 		index_t r_data = my_row[my_row_idx];
 
-		/*if (prev_l_data == l_data)
-			printf("error same data here %i %i\n", prev_l_data, l_data);*/
 
 		if (r_data == l_data)
 		{
@@ -120,10 +103,7 @@ __device__ index_t kway_merge_size(const index_t this_row, const index_t* __rest
 		else if (l_data < r_data)
 		{
 			if (l_data < this_row)
-			{
-				// printf("begin row %i l %i\n", this_row, l_data);
 				L_size++;
-			}
 
 			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
 			l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
@@ -146,10 +126,7 @@ __device__ index_t kway_merge_size(const index_t this_row, const index_t* __rest
 		while (l_data != -1)
 		{
 			if (l_data < this_row)
-			{
-				// printf("end row %i l %i\n", this_row, l_data);
 				L_size++;
-			}
 			increment_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number, l_data);
 			l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
 			size++;
@@ -162,7 +139,7 @@ __device__ index_t kway_merge_size(const index_t this_row, const index_t* __rest
 __device__ void kway_merge(const index_t this_row, const index_t* __restrict__ my_row, const index_t my_row_size,
 						   index_t* volatile* __restrict__ As_rows, volatile index_t* __restrict__ As_nnz,
 						   const index_t* __restrict__ As_indices, index_t* merging_rows_indices,
-						   const index_t rows_number, index_t* my_new_row, index_t size_check)
+						   const index_t rows_number, index_t* my_new_row)
 {
 	index_t offset = 0;
 
@@ -216,9 +193,6 @@ __device__ void kway_merge(const index_t this_row, const index_t* __restrict__ m
 			l_data = get_merging_data(As_rows, As_nnz, As_indices, merging_rows_indices, rows_number);
 		}
 	}
-
-	if (offset != size_check)
-		printf("size error\n");
 }
 
 __device__ void find_new_work(const index_t row, const index_t* __restrict__ new_indices,
@@ -278,13 +252,6 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		for (index_t i = 0; i < row_size; i++)
 		{
 			index_t col = (A_indices + row_indices_begin)[i];
-			if (i + 1 != row_size)
-			{
-				index_t next_col = (A_indices + row_indices_begin)[i + 1];
-
-				if (next_col <= col)
-					printf("error at input\n");
-			}
 			row_indices[i] = col;
 			if (col < row)
 				scratchpad_alloc_size++;
@@ -300,21 +267,6 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		}
 		scratchpad_size = scratchpad_alloc_size;
 	}
-
-	for (index_t i = 0; i < row_size - 1; i++)
-	{
-		if (row_indices[i] >= row_indices[i + 1])
-			printf("copy error\n");
-	}
-
-	for (index_t i = 0; i < scratchpad_size - 1; i++)
-	{
-		if (scratchpad[i] >= scratchpad[i + 1])
-			printf("copy error\n");
-	}
-
-
-	// printf("thread %i coppied \n", row);
 
 	index_t iteration = 0;
 
@@ -336,9 +288,6 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		if (new_size == row_size)
 			break;
 
-		if (new_size < row_size)
-			printf("iteration %i of row %i new size %i old size %i\n", iteration, row, new_size, row_size);
-
 		// update row
 		{
 			index_t* row_indices_new = (index_t*)malloc(sizeof(index_t) * new_size);
@@ -347,13 +296,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 				printf("thread %i error scratchrow size %i \n", row, new_size);
 
 			kway_merge(row, row_indices, row_size, As_indices, As_nnz, scratchpad, scratchpad + scratchpad_size,
-					   scratchpad_size, row_indices_new, new_size);
-
-			for (index_t i = 0; i < new_size - 1; i++)
-			{
-				if (row_indices_new[i] >= row_indices_new[i + 1])
-					printf("problem %i %i\n", row_indices_new[i], row_indices_new[i + 1]);
-			}
+					   scratchpad_size, row_indices_new);
 
 			// update scratchpad
 			{
@@ -366,33 +309,10 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 						printf("thread %i error row size %i \n", row, scratchpad_alloc_size);
 				}
 
-				/*	index_t tmp_count = 0;
-					for (index_t i = 0; i < new_size; i++)
-						if (row_indices_new[i] < row)
-							tmp_count++;
-						else
-							break;
-
-					if (tmp_count != scratchpad_size + new_scratchpad_size)
-						printf("problem sc size %i %i\n", tmp_count, scratchpad_size + new_scratchpad_size);*/
-
 				find_new_work(row, row_indices_new, new_size, row_indices, row_size, scratchpad);
 
-				printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, new_scratchpad_size,
-					   scratchpad_size);
-
-				/*if (new_scratchpad_size == 1 && scratchpad_size == 1)
-					printf("row %i old work %i new work %i\n", row, tmp, scratchpad[0]);*/
-
-				/*if (new_end - scratchpad != new_scratchpad_size)
-				{
-					printf("scratchpad size problem\n");
-				}*/
-				for (index_t i = 0; i < new_scratchpad_size - 1; i++)
-				{
-					if (scratchpad[i] >= scratchpad[i + 1])
-						printf("scratchpad problem %i %i\n", scratchpad[i], scratchpad[i + 1]);
-				}
+				/*printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, new_scratchpad_size,
+					   scratchpad_size);*/
 
 				scratchpad_size = new_scratchpad_size;
 			}
@@ -407,10 +327,6 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 	if (scratchpad)
 		free(scratchpad);
 
-	// if (new_cols > 0)
-	//	printf("row %i had %i new cols\n", row, (int)new_cols);
-
-	// printf("writing %i %p\n", row, row_indices);
 	As_nnz[row] = row_size;
 	As_indices[row] = row_indices;
 
