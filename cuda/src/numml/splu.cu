@@ -22,7 +22,7 @@ __device__ T* allocate(int size)
 }
 
 template <typename groupT>
-__device__ index_t get_merging_data(groupT& w, index_t* volatile* __restrict__ As_indices,
+__device__ index_t get_merging_data(groupT& w, const index_t* const volatile __restrict__* __restrict__ As_indices,
 									const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 									index_t* __restrict__ work_indices, const index_t work_size)
 {
@@ -33,7 +33,7 @@ __device__ index_t get_merging_data(groupT& w, index_t* volatile* __restrict__ A
 		const index_t row = work[i];
 		index_t idx = work_indices[i];
 		const index_t size = As_nnz[row];
-		const volatile index_t* row_indices = As_indices[row];
+		const volatile index_t* __restrict__ row_indices = As_indices[row];
 
 		const index_t data = idx != size ? row_indices[idx] : INT_MAX;
 		merging_data = data < merging_data ? data : merging_data;
@@ -43,15 +43,8 @@ __device__ index_t get_merging_data(groupT& w, index_t* volatile* __restrict__ A
 }
 
 template <typename groupT>
-__device__ index_t get_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
-										  const index_t row_idx, const index_t row_size)
-{
-	const index_t data = row_idx != row_size ? row_indices[row_idx] : INT_MAX;
-	return cg::reduce(g, data, cg::less<index_t>());
-}
-
-template <typename groupT>
-__device__ index_t increment_merging_data(groupT& w, index_t* volatile* __restrict__ As_indices,
+__device__ index_t increment_merging_data(groupT& w,
+										  const index_t* const volatile __restrict__* __restrict__ As_indices,
 										  const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 										  index_t* __restrict__ work_indices, const index_t work_size,
 										  const index_t target)
@@ -70,18 +63,17 @@ __device__ index_t increment_merging_data(groupT& w, index_t* volatile* __restri
 	}
 }
 
-template <typename groupT>
-__device__ index_t increment_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
-												index_t& row_idx, const index_t row_size, const index_t target)
+template <typename groupT, typename indT>
+__device__ index_t increment_merging_data_small(groupT& g, indT* __restrict__ row_indices, index_t& row_idx,
+												const index_t row_size, const index_t target)
 {
 	const index_t data = row_idx != row_size ? row_indices[row_idx] : INT_MAX;
 	row_idx += data == target ? 1 : 0;
 }
 
-template <typename groupT>
-__device__ index_t increment_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
-												index_t& row_idx, const index_t row_size, const index_t curr_data,
-												const index_t target)
+template <typename groupT, typename indT>
+__device__ index_t increment_merging_data_small(groupT& g, indT* __restrict__ row_indices, index_t& row_idx,
+												const index_t row_size, const index_t curr_data, const index_t target)
 {
 	const bool are_same = curr_data == target;
 
@@ -91,9 +83,9 @@ __device__ index_t increment_merging_data_small(groupT& g, const volatile index_
 }
 
 template <typename groupT>
-__device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indices, const index_t* __restrict__ As_nnz,
-							const index_t* __restrict__ work, index_t* __restrict__ work_indices,
-							const index_t work_size)
+__device__ void set_indices(groupT& w, const index_t* const volatile __restrict__* __restrict__ As_indices,
+							const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+							index_t* __restrict__ work_indices, const index_t work_size)
 {
 	const volatile index_t* __restrict__ As_nnz_v = As_nnz;
 	for (index_t i = w.thread_rank(); i < work_size; i += w.num_threads())
@@ -102,7 +94,7 @@ __device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indice
 		index_t idx = 0;
 		const index_t row_size = As_nnz_v[row];
 
-		volatile index_t* row_indices = As_indices[row];
+		const volatile index_t* row_indices = As_indices[row];
 
 		while (idx < row_size && row_indices[idx] <= row)
 		{
@@ -115,7 +107,8 @@ __device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indice
 
 template <typename groupT>
 __device__ index_t kway_merge_size(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
-								   const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
+								   const index_t this_row_size,
+								   const index_t* const volatile __restrict__* __restrict__ As_indices,
 								   const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 								   index_t* __restrict__ work_indices, const index_t work_size, index_t& new_work_size)
 {
@@ -180,7 +173,7 @@ __device__ index_t kway_merge_size(groupT& w, const index_t this_row, const inde
 template <typename groupT>
 __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 										 const index_t* __restrict__ this_row_indices, const index_t this_row_size,
-										 index_t* volatile* __restrict__ As_indices,
+										 const index_t* const volatile __restrict__* __restrict__ As_indices,
 										 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 										 const index_t work_size, index_t& new_work_size)
 {
@@ -227,7 +220,7 @@ __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 
 template <typename groupT>
 __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
-						   const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
+						   const index_t this_row_size, const index_t* const __restrict__* __restrict__ As_indices,
 						   const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 						   index_t* __restrict__ work_indices, const index_t work_size,
 						   index_t* __restrict__ new_row_indices)
@@ -300,8 +293,9 @@ __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __r
 
 template <typename groupT>
 __device__ void kway_merge_small(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
-								 const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
-								 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+								 const index_t this_row_size,
+								 const index_t* const __restrict__* __restrict__ As_indices,
+								 const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 								 const index_t work_size, index_t* __restrict__ new_row_indices)
 {
 	if (w.thread_rank() >= work_size + 1)
@@ -315,7 +309,7 @@ __device__ void kway_merge_small(groupT& w, const index_t this_row, const index_
 	index_t merging_row_idx = 0;
 	const index_t merging_row = w.thread_rank() == 0 ? this_row : work[w.thread_rank() - 1];
 	const index_t merging_row_size = w.thread_rank() == 0 ? this_row_size : As_nnz[merging_row];
-	const volatile index_t* merging_row_indices = w.thread_rank() == 0 ? this_row_indices : As_indices[merging_row];
+	const index_t* merging_row_indices = w.thread_rank() == 0 ? this_row_indices : As_indices[merging_row];
 
 	// set indices after row
 	if (w.thread_rank() != 0)
@@ -369,7 +363,7 @@ __device__ void find_new_work(const index_t row, const index_t* __restrict__ new
 
 __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index_t* __restrict__ A_indices,
 											   const index_t* __restrict__ A_indptr, index_t* __restrict__ As_nnz,
-											   index_t* volatile* __restrict__ As_indices,
+											   index_t* __restrict__* __restrict__ As_indices,
 											   volatile index_t* __restrict__ degree)
 {
 	const index_t row = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
