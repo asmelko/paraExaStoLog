@@ -518,9 +518,9 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 			}
 
 
-		/*	if (warp.thread_rank() == 0)
+			if (warp.thread_rank() == 0)
 				printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, next_work_size,
-					   scratchpad_size);*/
+					   scratchpad_size);
 
 			scratchpad_size = next_work_size;
 
