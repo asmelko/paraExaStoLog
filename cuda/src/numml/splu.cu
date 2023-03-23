@@ -103,27 +103,6 @@ __device__ void set_indices(groupT& w, const index_t* const volatile __restrict_
 }
 
 template <typename groupT>
-__device__ index_t kway_merge_size_dispatch(groupT& w, const index_t this_row,
-											const index_t* __restrict__ this_row_indices, const index_t this_row_size,
-											const index_t* const volatile __restrict__* __restrict__ As_indices,
-											const index_t* __restrict__ As_nnz, index_t* __restrict__ work,
-											index_t* __restrict__ work_indices, const index_t work_size,
-											index_t& new_work_size)
-{
-	if (work_size <= 31)
-	{
-		return kway_merge_size_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
-									 new_work_size);
-	}
-	else
-	{
-		work[work_size] = this_row;
-		return kway_merge_size_big(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_indices,
-								   work_size + 1, new_work_size);
-	}
-}
-
-template <typename groupT>
 __device__ index_t kway_merge_size_big(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
 									   const index_t this_row_size,
 									   const index_t* const volatile __restrict__* __restrict__ As_indices,
@@ -209,24 +188,23 @@ __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 }
 
 template <typename groupT>
-__device__ void kway_merge_dispatch(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
-									const index_t this_row_size,
-									const index_t* const __restrict__* __restrict__ As_indices,
-									const index_t* __restrict__ As_nnz, index_t* __restrict__ work,
-									index_t* __restrict__ work_indices, const index_t work_size,
-									index_t* __restrict__ new_row_indices)
-
+__device__ index_t kway_merge_size_dispatch(groupT& w, const index_t this_row,
+											const index_t* __restrict__ this_row_indices, const index_t this_row_size,
+											const index_t* const volatile __restrict__* __restrict__ As_indices,
+											const index_t* __restrict__ As_nnz, index_t* __restrict__ work,
+											index_t* __restrict__ work_indices, const index_t work_size,
+											index_t& new_work_size)
 {
 	if (work_size <= 31)
 	{
-		return kway_merge_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
-								new_row_indices);
+		return kway_merge_size_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
+									 new_work_size);
 	}
 	else
 	{
 		work[work_size] = this_row;
-		return kway_merge_big(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_indices,
-							  work_size + 1, new_row_indices);
+		return kway_merge_size_big(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_indices,
+								   work_size + 1, new_work_size);
 	}
 }
 
@@ -295,6 +273,28 @@ __device__ void kway_merge_small(groupT& w, const index_t this_row, const index_
 		merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
 													merging_data, l_data);
 		l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+	}
+}
+
+template <typename groupT>
+__device__ void kway_merge_dispatch(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
+									const index_t this_row_size,
+									const index_t* const __restrict__* __restrict__ As_indices,
+									const index_t* __restrict__ As_nnz, index_t* __restrict__ work,
+									index_t* __restrict__ work_indices, const index_t work_size,
+									index_t* __restrict__ new_row_indices)
+
+{
+	if (work_size <= 31)
+	{
+		return kway_merge_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
+								new_row_indices);
+	}
+	else
+	{
+		work[work_size] = this_row;
+		return kway_merge_big(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_indices,
+							  work_size + 1, new_row_indices);
 	}
 }
 
