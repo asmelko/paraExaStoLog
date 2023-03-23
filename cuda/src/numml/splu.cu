@@ -398,7 +398,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		if (scratchpad_alloc_size)
 		{
 			if (warp.thread_rank() == 0)
-				scratchpad = allocate<index_t>((scratchpad_size + 1) * 2);
+				scratchpad = allocate<index_t>((scratchpad_size + 1) * 3);
 			scratchpad = warp.shfl(scratchpad, 0);
 
 			for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
@@ -427,65 +427,102 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 
 		iteration++;
 
-		while (true)
+		index_t* __restrict__ scratchpad_wip = scratchpad + scratchpad_size;
+		index_t scratchpad_wip_size = 0;
+
+		while (scratchpad_wip_size == 0)
 		{
-			bool has_degree = false;
-			for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
+			if (warp.thread_rank() == 0)
 			{
-				const index_t index = scratchpad[i];
+				scratchpad_wip_size = 0;
+				index_t new_offset = 0;
 
-				has_degree |= degree[index] != 0;
+				for (index_t i = 0; i < scratchpad_size; i++)
+				{
+					const index_t index = scratchpad[i];
+
+					if (degree[index] == 0)
+						scratchpad_wip[scratchpad_wip_size++] = index;
+					else
+						scratchpad[new_offset++] = index;
+				}
 			}
-
-			has_degree = warp.any(has_degree);
-
-			if (!has_degree)
-				break;
+			scratchpad_wip_size = warp.shfl(scratchpad_wip_size, 0);
 		}
 
-		index_t new_scratchpad_size;
+
+		index_t new_work_size;
 		index_t new_size =
-			kway_merge_size_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad,
-									 scratchpad + scratchpad_size + 1, scratchpad_size, new_scratchpad_size);
+			kway_merge_size_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad_wip,
+									 scratchpad_wip + scratchpad_wip_size + 1, scratchpad_wip_size, new_work_size);
+
+		// add not processed work
+		index_t old_work_size = scratchpad_size - scratchpad_wip_size;
+
+		index_t next_work_size = new_work_size + old_work_size;
 
 		if (new_size == row_size)
-			break;
-
-		// update row
+		{
+			scratchpad_size = next_work_size;
+		}
+		else // update row
 		{
 			index_t* row_indices_new;
 			if (warp.thread_rank() == 0)
 				row_indices_new = allocate<index_t>(new_size);
 			row_indices_new = warp.shfl(row_indices_new, 0);
 
-			kway_merge_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad,
-								scratchpad + scratchpad_size + 1, scratchpad_size, row_indices_new);
+			kway_merge_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad_wip,
+								scratchpad_wip + scratchpad_wip_size + 1, scratchpad_wip_size, row_indices_new);
+
+			warp.sync();
 
 			// update scratchpad
+			if (next_work_size)
 			{
-				if (new_scratchpad_size > scratchpad_alloc_size)
+				if (warp.thread_rank() == 0)
 				{
-					scratchpad_alloc_size = new_scratchpad_size;
-
-					if (warp.thread_rank() == 0)
+					if (next_work_size > scratchpad_alloc_size)
 					{
+						scratchpad_alloc_size = next_work_size;
+
+						auto new_scratchpad = allocate<index_t>((scratchpad_alloc_size + 1) * 3);
+
+						find_new_work(row, row_indices_new, new_size, row_indices, row_size,
+									  new_scratchpad + scratchpad_alloc_size);
+
+						auto new_end = thrust::set_union(
+							thrust::seq, scratchpad, scratchpad + old_work_size, new_scratchpad + scratchpad_alloc_size,
+							new_scratchpad + scratchpad_alloc_size + new_work_size, new_scratchpad);
+
+
 						free(scratchpad);
-						scratchpad = allocate<index_t>((scratchpad_alloc_size + 1) * 2);
+						scratchpad = new_scratchpad;
 					}
-					scratchpad = warp.shfl(scratchpad, 0);
+					else
+					{
+						find_new_work(row, row_indices_new, new_size, row_indices, row_size,
+									  scratchpad + scratchpad_alloc_size);
+
+						thrust::set_union(
+							thrust::seq, scratchpad, scratchpad + old_work_size, scratchpad + scratchpad_alloc_size,
+							scratchpad + scratchpad_alloc_size + new_work_size, scratchpad + 2 * scratchpad_alloc_size);
+
+						thrust::copy(thrust::seq, scratchpad + 2 * scratchpad_alloc_size,
+									 scratchpad + 2 * scratchpad_alloc_size + next_work_size, scratchpad);
+
+					}
 				}
 
-				if (warp.thread_rank() == 0)
-					find_new_work(row, row_indices_new, new_size, row_indices, row_size, scratchpad);
-
-				warp.sync();
-
-				if (warp.thread_rank() == 0)
-					printf("iteration %i row %i new work size %i old work size %i\n", iteration, row,
-						   new_scratchpad_size, scratchpad_size);
-
-				scratchpad_size = new_scratchpad_size;
+				scratchpad = warp.shfl(scratchpad, 0);
 			}
+
+
+		/*	if (warp.thread_rank() == 0)
+				printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, next_work_size,
+					   scratchpad_size);*/
+
+			scratchpad_size = next_work_size;
 
 			/*if (warp.thread_rank() == 0)
 				printf("row %i after new work \n", row);*/
