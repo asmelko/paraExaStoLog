@@ -23,10 +23,9 @@ __device__ T* allocate(int size)
 
 template <typename groupT>
 __device__ index_t get_merging_data(groupT& w, index_t* volatile* __restrict__ As_indices,
-									volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
-									index_t* work_indices, const index_t work_size)
+									const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+									index_t* __restrict__ work_indices, const index_t work_size)
 {
-	const index_t none = INT_MAX;
 	index_t merging_data = INT_MAX;
 
 	for (index_t i = w.thread_rank(); i < work_size; i += w.num_threads())
@@ -34,52 +33,74 @@ __device__ index_t get_merging_data(groupT& w, index_t* volatile* __restrict__ A
 		const index_t row = work[i];
 		index_t idx = work_indices[i];
 		const index_t size = As_nnz[row];
+		const volatile index_t* row_indices = As_indices[row];
 
-		// minimize divergence
-		const volatile index_t* row_indices = (idx == size) ? &none : As_indices[row];
-		idx = (idx == size) ? 0 : idx;
-
-		const index_t data = row_indices[idx];
-		merging_data = (data < merging_data) ? data : merging_data;
+		const index_t data = idx != size ? row_indices[idx] : INT_MAX;
+		merging_data = data < merging_data ? data : merging_data;
 	}
 
 	return cg::reduce(w, merging_data, cg::less<index_t>());
 }
 
 template <typename groupT>
-__device__ index_t increment_merging_data(groupT& w, index_t* volatile* __restrict__ As_indices,
-										  volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
-										  index_t* work_indices, const index_t work_size, const index_t target)
+__device__ index_t get_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
+										  const index_t row_idx, const index_t row_size)
 {
-	const index_t none = INT_MAX;
+	const index_t data = row_idx != row_size ? row_indices[row_idx] : INT_MAX;
+	return cg::reduce(g, data, cg::less<index_t>());
+}
 
+template <typename groupT>
+__device__ index_t increment_merging_data(groupT& w, index_t* volatile* __restrict__ As_indices,
+										  const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+										  index_t* __restrict__ work_indices, const index_t work_size,
+										  const index_t target)
+{
 	for (index_t i = w.thread_rank(); i < work_size; i += w.num_threads())
 	{
 		const index_t row = work[i];
 		index_t idx = work_indices[i];
 		const index_t size = As_nnz[row];
+		const volatile index_t* row_indices = As_indices[row];
 
-		// minimize divergence
-		const volatile index_t* row_indices = (idx == size) ? &none : As_indices[row];
-		idx = (idx == size) ? 0 : idx;
+		const index_t data = idx != size ? row_indices[idx] : INT_MAX;
 
-		const index_t data = row_indices[idx];
-		idx += (data == target) ? 1 : 0;
-
+		idx += data == target ? 1 : 0;
 		work_indices[i] = idx;
 	}
 }
 
 template <typename groupT>
-__device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indices,
-							volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
-							index_t* work_indices, const index_t work_size)
+__device__ index_t increment_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
+												index_t& row_idx, const index_t row_size, const index_t target)
 {
+	const index_t data = row_idx != row_size ? row_indices[row_idx] : INT_MAX;
+	row_idx += data == target ? 1 : 0;
+}
+
+template <typename groupT>
+__device__ index_t increment_merging_data_small(groupT& g, const volatile index_t* __restrict__ row_indices,
+												index_t& row_idx, const index_t row_size, const index_t curr_data,
+												const index_t target)
+{
+	const bool are_same = curr_data == target;
+
+	row_idx += are_same ? 1 : 0;
+
+	return are_same ? (row_idx != row_size ? row_indices[row_idx] : INT_MAX) : curr_data;
+}
+
+template <typename groupT>
+__device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indices, const index_t* __restrict__ As_nnz,
+							const index_t* __restrict__ work, index_t* __restrict__ work_indices,
+							const index_t work_size)
+{
+	const volatile index_t* __restrict__ As_nnz_v = As_nnz;
 	for (index_t i = w.thread_rank(); i < work_size; i += w.num_threads())
 	{
 		const index_t row = work[i];
 		index_t idx = 0;
-		const index_t row_size = As_nnz[row];
+		const index_t row_size = As_nnz_v[row];
 
 		volatile index_t* row_indices = As_indices[row];
 
@@ -95,9 +116,12 @@ __device__ void set_indices(groupT& w, index_t* volatile* __restrict__ As_indice
 template <typename groupT>
 __device__ index_t kway_merge_size(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
 								   const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
-								   volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
-								   index_t* work_indices, const index_t work_size, index_t& new_work_size)
+								   const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+								   index_t* __restrict__ work_indices, const index_t work_size, index_t& new_work_size)
 {
+	if (work_size <= 32)
+		return kway_merge_size_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
+									 new_work_size);
 	index_t new_row_size = 0;
 	new_work_size = 0;
 
@@ -154,11 +178,97 @@ __device__ index_t kway_merge_size(groupT& w, const index_t this_row, const inde
 }
 
 template <typename groupT>
+__device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
+										 const index_t* __restrict__ this_row_indices, const index_t this_row_size,
+										 index_t* volatile* __restrict__ As_indices,
+										 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+										 const index_t work_size, index_t& new_work_size)
+{
+	if (w.thread_rank() >= work_size)
+		return;
+
+	auto g = cg::coalesced_threads();
+
+	index_t new_row_size = 0;
+	new_work_size = 0;
+
+	index_t this_row_idx = 0;
+
+	index_t merging_data = 0;
+	index_t merging_row_idx = 0;
+	const index_t merging_row = work[g.thread_rank()];
+	const index_t merging_row_size = As_nnz[merging_row];
+	const volatile index_t* merging_row_indices = As_indices[merging_row];
+
+	// set indices after row
+	while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+	{
+		merging_row_idx++;
+	}
+
+	merging_data = merging_row_indices[merging_row_idx];
+
+	index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+
+	while (this_row_idx < this_row_size && l_data != INT_MAX)
+	{
+		index_t r_data = this_row_indices[this_row_idx];
+
+		if (r_data == l_data)
+		{
+			this_row_idx++;
+			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+														merging_data, l_data);
+			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+		}
+		else if (l_data < r_data)
+		{
+			if (l_data < this_row)
+				new_work_size++;
+
+			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+														merging_data, l_data);
+			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+		}
+		else
+		{
+			this_row_idx++;
+		}
+		new_row_size++;
+	}
+
+	// merging rows are all merged
+	if (l_data == INT_MAX)
+		return new_row_size + this_row_size - this_row_idx;
+
+	if (this_row_idx == this_row_size)
+	{
+		while (l_data != INT_MAX)
+		{
+			if (l_data < this_row)
+				new_work_size++;
+			new_row_size++;
+
+			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+														merging_data, l_data);
+			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+		}
+	}
+
+	return new_row_size;
+}
+
+template <typename groupT>
 __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
 						   const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
-						   volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
-						   index_t* work_indices, const index_t work_size, index_t* __restrict__ new_row_indices)
+						   const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+						   index_t* __restrict__ work_indices, const index_t work_size,
+						   index_t* __restrict__ new_row_indices)
 {
+	if (work_size <= 32)
+		return kway_merge_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
+								new_row_indices);
+
 	index_t new_row_idx = 0;
 	index_t this_row_idx = 0;
 
@@ -171,9 +281,11 @@ __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __r
 	{
 		index_t r_data = this_row_indices[this_row_idx];
 
+		index_t to_write;
+
 		if (r_data == l_data)
 		{
-			new_row_indices[new_row_idx++] = r_data;
+			to_write = r_data;
 
 			this_row_idx++;
 			increment_merging_data(w, As_indices, As_nnz, work, work_indices, work_size, l_data);
@@ -181,17 +293,22 @@ __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __r
 		}
 		else if (l_data < r_data)
 		{
-			new_row_indices[new_row_idx++] = l_data;
+			to_write = l_data;
 
 			increment_merging_data(w, As_indices, As_nnz, work, work_indices, work_size, l_data);
 			l_data = get_merging_data(w, As_indices, As_nnz, work, work_indices, work_size);
 		}
 		else
 		{
-			new_row_indices[new_row_idx++] = r_data;
+			to_write = r_data;
 
 			this_row_idx++;
 		}
+
+		if (w.thread_rank() == 0)
+			new_row_indices[new_row_idx] = to_write;
+
+		new_row_idx++;
 	}
 
 	// merging rows are all merged
@@ -205,10 +322,97 @@ __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __r
 	{
 		while (l_data != INT_MAX)
 		{
-			new_row_indices[new_row_idx++] = l_data;
+			if (w.thread_rank() == 0)
+				new_row_indices[new_row_idx++] = l_data;
 
 			increment_merging_data(w, As_indices, As_nnz, work, work_indices, work_size, l_data);
 			l_data = get_merging_data(w, As_indices, As_nnz, work, work_indices, work_size);
+		}
+	}
+}
+
+template <typename groupT>
+__device__ void kway_merge_small(groupT& w, const index_t this_row, const index_t* __restrict__ this_row_indices,
+								 const index_t this_row_size, index_t* volatile* __restrict__ As_indices,
+								 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
+								 const index_t work_size, index_t* __restrict__ new_row_indices)
+{
+	if (w.thread_rank() >= work_size)
+		return;
+
+	auto g = cg::coalesced_threads();
+
+	index_t this_row_idx = 0;
+	index_t new_row_idx = 0;
+
+	index_t merging_data;
+	index_t merging_row_idx = 0;
+	const index_t merging_row = work[g.thread_rank()];
+	const index_t merging_row_size = As_nnz[merging_row];
+	const volatile index_t* merging_row_indices = As_indices[merging_row];
+
+	// set indices after row
+	while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+	{
+		merging_row_idx++;
+	}
+
+	merging_data = merging_row_indices[merging_row_idx];
+
+	index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+
+	while (this_row_idx < this_row_size && l_data != INT_MAX)
+	{
+		index_t r_data = this_row_indices[this_row_idx];
+
+		index_t to_write;
+
+		if (r_data == l_data)
+		{
+			to_write = r_data;
+
+			this_row_idx++;
+			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+														merging_data, l_data);
+			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+		}
+		else if (l_data < r_data)
+		{
+			to_write = l_data;
+
+			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+														merging_data, l_data);
+			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
+		}
+		else
+		{
+			to_write = r_data;
+
+			this_row_idx++;
+		}
+
+		if (g.thread_rank() == 0)
+			new_row_indices[new_row_idx] = to_write;
+
+		new_row_idx++;
+	}
+
+	// merging rows are all merged
+	if (l_data == INT_MAX)
+	{
+		for (index_t i = this_row_idx + g.thread_rank(); i < this_row_size; i += g.num_threads())
+			new_row_indices[new_row_idx + i - this_row_idx] = this_row_indices[i];
+	}
+
+	if (this_row_idx == this_row_size)
+	{
+		while (l_data != INT_MAX)
+		{
+			if (g.thread_rank() == 0)
+				new_row_indices[new_row_idx++] = l_data;
+
+			increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size, l_data);
+			l_data = get_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size);
 		}
 	}
 }
@@ -240,154 +444,189 @@ __device__ void find_new_work(const index_t row, const index_t* __restrict__ new
 }
 
 __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index_t* __restrict__ A_indices,
-											   const index_t* __restrict__ A_indptr,
-											   volatile index_t* __restrict__ As_nnz,
+											   const index_t* __restrict__ A_indptr, index_t* __restrict__ As_nnz,
 											   index_t* volatile* __restrict__ As_indices,
 											   volatile index_t* __restrict__ degree)
 {
-	index_t row = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
+	const index_t row = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
 
 	// printf("thread %i row %i\n", blockIdx.x * blockDim.x + threadIdx.x, row);
 
 	auto warp = cg::tiled_partition<32>(cg::this_thread_block());
 
-	while (true)
+	if (row >= A_rows)
+		return;
+
+	// if (warp.thread_rank() == 0)
+	//	printf("row %i started\n", row);
+
+	index_t row_size;
+	index_t* row_indices;
+
+	index_t scratchpad_alloc_size = 0;
+	index_t scratchpad_size = 0;
+	index_t* scratchpad = nullptr;
+
 	{
-		if (row >= A_rows)
-			return;
+		const index_t row_indices_begin = A_indptr[row];
+		row_size = A_indptr[row + 1] - row_indices_begin;
 
-		index_t row_size;
-		index_t* row_indices;
-
-		index_t scratchpad_alloc_size = 0;
-		index_t scratchpad_size = 0;
-		index_t* scratchpad = nullptr;
-
+		if (warp.thread_rank() == 0)
 		{
-			const index_t row_indices_begin = A_indptr[row];
-			row_size = A_indptr[row + 1] - row_indices_begin;
+			row_indices = allocate<index_t>(row_size);
+		}
 
-			if (warp.thread_rank() == 0)
-			{
-				row_indices = allocate<index_t>(row_size);
-			}
+		row_indices = warp.shfl(row_indices, 0);
 
-			row_indices = warp.shfl(row_indices, 0);
-
-			for (index_t i = warp.thread_rank(); i < row_size; i += warp.num_threads())
-			{
-				index_t col = (A_indices + row_indices_begin)[i];
-				row_indices[i] = col;
-				if (col == row)
-					scratchpad_alloc_size = i;
-			}
-
-			warp.sync();
-
-			auto mask = warp.ballot(scratchpad_alloc_size != 0);
-			int lane_id = 0;
-			while (mask >>= 1)
-				lane_id++;
-			scratchpad_alloc_size = warp.shfl(scratchpad_alloc_size, lane_id);
-
-			scratchpad_size = scratchpad_alloc_size;
-
-			if (scratchpad_alloc_size)
-			{
-				if (warp.thread_rank() == 0)
-					scratchpad = allocate<index_t>(scratchpad_size * 2);
-				scratchpad = warp.shfl(scratchpad, 0);
-
-				for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
-					scratchpad[i] = row_indices[i];
-			}
+		for (index_t i = warp.thread_rank(); i < row_size; i += warp.num_threads())
+		{
+			index_t col = (A_indices + row_indices_begin)[i];
+			row_indices[i] = col;
+			if (col == row)
+				scratchpad_alloc_size = i;
 		}
 
 		warp.sync();
 
-		index_t iteration = 0;
+		auto mask = warp.ballot(scratchpad_alloc_size);
 
-		while (scratchpad_size)
+		// if (scratchpad_alloc_size && mask == 0)
+		//	printf("error\n");
+
+		if (mask != 0)
 		{
-			iteration++;
+			int lane_id = -1;
+			while (mask)
+			{
+				mask >>= 1;
+				lane_id++;
+			}
+
+			scratchpad_alloc_size = warp.shfl(scratchpad_alloc_size, lane_id);
+		}
+
+		// if (bef != 0 && scratchpad_alloc_size == 0)
+		//	printf("error\n");
+
+
+		/*	if (scratchpad_alloc_size != 0)
+				printf("thread %i scs\n", (int)warp.thread_rank());*/
+
+		scratchpad_size = scratchpad_alloc_size;
+
+		if (scratchpad_alloc_size)
+		{
+			if (warp.thread_rank() == 0)
+				scratchpad = allocate<index_t>(scratchpad_size * 2);
+			scratchpad = warp.shfl(scratchpad, 0);
+
+			for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
+				scratchpad[i] = row_indices[i];
+		}
+	}
+
+	warp.sync();
+
+	// if (warp.thread_rank() == 0)
+	//{
+	//	for (index_t i = 0; i < scratchpad_size; i++)
+	//		if (scratchpad[i] != row_indices[i])
+	//			printf("error\n");
+	// }
+
+	index_t iteration = 0;
+
+	while (scratchpad_size)
+	{
+		iteration++;
+
+		while (true)
+		{
+			bool has_degree = false;
 			for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
 			{
 				const index_t index = scratchpad[i];
 
-				while (degree[index] != 0)
-					;
+				has_degree |= degree[index] != 0;
 			}
+
+			has_degree = warp.any(has_degree);
+
+			if (!has_degree)
+				break;
+		}
+
+		index_t new_scratchpad_size;
+		index_t new_size = kway_merge_size(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad,
+										   scratchpad + scratchpad_size, scratchpad_size, new_scratchpad_size);
+
+		new_size = warp.shfl(new_size, 0);
+		new_scratchpad_size = warp.shfl(new_scratchpad_size, 0);
+
+		if (new_size == row_size)
+			break;
+
+		// update row
+		{
+			index_t* row_indices_new;
+			if (warp.thread_rank() == 0)
+				row_indices_new = allocate<index_t>(new_size);
+			row_indices_new = warp.shfl(row_indices_new, 0);
+
+			kway_merge(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad, scratchpad + scratchpad_size,
+					   scratchpad_size, row_indices_new);
 
 			warp.sync();
 
-			index_t new_scratchpad_size;
-			index_t new_size = kway_merge_size(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad,
-											   scratchpad + scratchpad_size, scratchpad_size, new_scratchpad_size);
-
-			if (new_size == row_size)
-				break;
-
-			// update row
+			// update scratchpad
 			{
-				index_t* row_indices_new;
-				if (warp.thread_rank() == 0)
-					row_indices_new = allocate<index_t>(new_size);
-				row_indices_new = warp.shfl(row_indices_new, 0);
+				if (new_scratchpad_size > scratchpad_alloc_size)
+				{
+					scratchpad_alloc_size = new_scratchpad_size;
 
-				kway_merge(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad,
-						   scratchpad + scratchpad_size, scratchpad_size, row_indices_new);
+					if (warp.thread_rank() == 0)
+					{
+						free(scratchpad);
+						scratchpad = allocate<index_t>(scratchpad_alloc_size * 2);
+					}
+					scratchpad = warp.shfl(scratchpad, 0);
+				}
+
+				if (warp.thread_rank() == 0)
+					find_new_work(row, row_indices_new, new_size, row_indices, row_size, scratchpad);
 
 				warp.sync();
 
-				// update scratchpad
-				{
-					if (new_scratchpad_size > scratchpad_alloc_size)
-					{
-						scratchpad_alloc_size = new_scratchpad_size;
-
-						if (warp.thread_rank() == 0)
-						{
-							free(scratchpad);
-							scratchpad = allocate<index_t>(scratchpad_alloc_size * 2);
-						}
-						scratchpad = warp.shfl(scratchpad, 0);
-					}
-
-					if (warp.thread_rank() == 0)
-						find_new_work(row, row_indices_new, new_size, row_indices, row_size, scratchpad);
-
-					warp.sync();
-
-					if (warp.thread_rank() == 0)
-						printf("iteration %i row %i new work size %i old work size %i\n", iteration, row,
-							   new_scratchpad_size, scratchpad_size);
-
-					scratchpad_size = new_scratchpad_size;
-				}
-
-				// update row size and indices
-				row_size = new_size;
 				if (warp.thread_rank() == 0)
-					free(row_indices);
-				row_indices = row_indices_new;
+					printf("iteration %i row %i new work size %i old work size %i\n", iteration, row,
+						   new_scratchpad_size, scratchpad_size);
+
+				scratchpad_size = new_scratchpad_size;
 			}
+
+			/*if (warp.thread_rank() == 0)
+				printf("row %i after new work \n", row);*/
+
+			// update row size and indices
+			row_size = new_size;
+			if (warp.thread_rank() == 0)
+				free(row_indices);
+			row_indices = row_indices_new;
 		}
+	}
 
-		if (warp.thread_rank() == 0)
-		{
-			if (scratchpad)
-				free(scratchpad);
+	if (warp.thread_rank() == 0)
+	{
+		if (scratchpad)
+			free(scratchpad);
 
-			As_nnz[row] = row_size;
-			As_indices[row] = row_indices;
+		As_nnz[row] = row_size;
+		As_indices[row] = row_indices;
 
-			__threadfence();
-			degree[row] = 0;
+		__threadfence();
+		degree[row] = 0;
 
-			//printf("row %i finished\n", row);
-		}
-
-		row += gridDim.x * blockDim.x / 32;
+		// printf("row %i finished\n", row);
 	}
 }
 
@@ -572,7 +811,7 @@ __global__ void cuda_kernel_splu_numeric_sflu(const index_t A_rows, const index_
 void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indices, const d_datvec& A_data,
 		  d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data)
 {
-	const int threads_per_block = 128;
+	const int threads_per_block = 512;
 
 	As_indptr.resize(A_indptr.size());
 	As_indptr[0] = 0;
@@ -597,8 +836,9 @@ void splu(cu_context& context, const d_idxvec& A_indptr, const d_idxvec& A_indic
 	CHECK_CUDA(cudaDeviceSynchronize());
 	// print("L_nnz ", d_idxvec(L_nnz, L_nnz + A_rows));
 
-	cuda_kernel_splu_symbolic_fact<<<10, 256>>>(A_rows, A_indices.data().get(), A_indptr.data().get(),
-															  As_indptr.data().get() + 1, As_indices_by_row, L_nnz);
+	cuda_kernel_splu_symbolic_fact<<<(A_cols + (threads_per_block / 32) - 1) / (threads_per_block / 32),
+									 threads_per_block>>>(A_rows, A_indices.data().get(), A_indptr.data().get(),
+														  As_indptr.data().get() + 1, As_indices_by_row, L_nnz);
 
 	CHECK_CUDA(cudaDeviceSynchronize());
 
