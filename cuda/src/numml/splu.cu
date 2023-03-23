@@ -441,7 +441,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 				{
 					const index_t index = scratchpad[i];
 
-					if (degree[index] == 0)
+					if (scratchpad_wip_size < 31 && degree[index] == 0)
 						scratchpad_wip[scratchpad_wip_size++] = index;
 					else
 						scratchpad[new_offset++] = index;
