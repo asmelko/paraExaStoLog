@@ -119,7 +119,7 @@ __device__ index_t kway_merge_size(groupT& w, const index_t this_row, const inde
 								   const index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 								   index_t* __restrict__ work_indices, const index_t work_size, index_t& new_work_size)
 {
-	if (work_size <= 32)
+	if (work_size <= 31)
 		return kway_merge_size_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
 									 new_work_size);
 	index_t new_row_size = 0;
@@ -184,7 +184,7 @@ __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 										 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 										 const index_t work_size, index_t& new_work_size)
 {
-	if (w.thread_rank() >= work_size)
+	if (w.thread_rank() >= work_size + 1)
 		return;
 
 	auto g = cg::coalesced_threads();
@@ -192,67 +192,34 @@ __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 	index_t new_row_size = 0;
 	new_work_size = 0;
 
-	index_t this_row_idx = 0;
-
-	index_t merging_data = 0;
+	index_t merging_data = INT_MAX;
 	index_t merging_row_idx = 0;
-	const index_t merging_row = work[g.thread_rank()];
-	const index_t merging_row_size = As_nnz[merging_row];
-	const volatile index_t* merging_row_indices = As_indices[merging_row];
+	const index_t merging_row = w.thread_rank() == 0 ? this_row : work[w.thread_rank() - 1];
+	const index_t merging_row_size = w.thread_rank() == 0 ? this_row_size : As_nnz[merging_row];
+	const volatile index_t* merging_row_indices = w.thread_rank() == 0 ? this_row_indices : As_indices[merging_row];
 
 	// set indices after row
-	while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+	if (w.thread_rank() != 0)
 	{
-		merging_row_idx++;
+		while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+		{
+			merging_row_idx++;
+		}
 	}
 
 	merging_data = merging_row_indices[merging_row_idx];
 
 	index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 
-	while (this_row_idx < this_row_size && l_data != INT_MAX)
+	while (l_data != INT_MAX)
 	{
-		index_t r_data = this_row_indices[this_row_idx];
-
-		if (r_data == l_data)
-		{
-			this_row_idx++;
-			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
-														merging_data, l_data);
-			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
-		}
-		else if (l_data < r_data)
-		{
-			if (l_data < this_row)
-				new_work_size++;
-
-			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
-														merging_data, l_data);
-			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
-		}
-		else
-		{
-			this_row_idx++;
-		}
+		if (l_data != merging_data && l_data < merging_row)
+			new_work_size++;
 		new_row_size++;
-	}
 
-	// merging rows are all merged
-	if (l_data == INT_MAX)
-		return new_row_size + this_row_size - this_row_idx;
-
-	if (this_row_idx == this_row_size)
-	{
-		while (l_data != INT_MAX)
-		{
-			if (l_data < this_row)
-				new_work_size++;
-			new_row_size++;
-
-			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
-														merging_data, l_data);
-			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
-		}
+		merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+													merging_data, l_data);
+		l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 	}
 
 	return new_row_size;
@@ -265,7 +232,7 @@ __device__ void kway_merge(groupT& w, const index_t this_row, const index_t* __r
 						   index_t* __restrict__ work_indices, const index_t work_size,
 						   index_t* __restrict__ new_row_indices)
 {
-	if (work_size <= 32)
+	if (work_size <= 31)
 		return kway_merge_small(w, this_row, this_row_indices, this_row_size, As_indices, As_nnz, work, work_size,
 								new_row_indices);
 
@@ -337,83 +304,40 @@ __device__ void kway_merge_small(groupT& w, const index_t this_row, const index_
 								 const volatile index_t* __restrict__ As_nnz, const index_t* __restrict__ work,
 								 const index_t work_size, index_t* __restrict__ new_row_indices)
 {
-	if (w.thread_rank() >= work_size)
+	if (w.thread_rank() >= work_size + 1)
 		return;
 
 	auto g = cg::coalesced_threads();
 
-	index_t this_row_idx = 0;
 	index_t new_row_idx = 0;
 
-	index_t merging_data;
+	index_t merging_data = INT_MAX;
 	index_t merging_row_idx = 0;
-	const index_t merging_row = work[g.thread_rank()];
-	const index_t merging_row_size = As_nnz[merging_row];
-	const volatile index_t* merging_row_indices = As_indices[merging_row];
+	const index_t merging_row = w.thread_rank() == 0 ? this_row : work[w.thread_rank() - 1];
+	const index_t merging_row_size = w.thread_rank() == 0 ? this_row_size : As_nnz[merging_row];
+	const volatile index_t* merging_row_indices = w.thread_rank() == 0 ? this_row_indices : As_indices[merging_row];
 
 	// set indices after row
-	while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+	if (w.thread_rank() != 0)
 	{
-		merging_row_idx++;
+		while (merging_row_idx < merging_row_size && merging_row_indices[merging_row_idx] <= merging_row)
+		{
+			merging_row_idx++;
+		}
 	}
 
 	merging_data = merging_row_indices[merging_row_idx];
 
 	index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 
-	while (this_row_idx < this_row_size && l_data != INT_MAX)
+	while (l_data != INT_MAX)
 	{
-		index_t r_data = this_row_indices[this_row_idx];
+		if (w.thread_rank() == 0)
+			new_row_indices[new_row_idx++] = l_data;
 
-		index_t to_write;
-
-		if (r_data == l_data)
-		{
-			to_write = r_data;
-
-			this_row_idx++;
-			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
-														merging_data, l_data);
-			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
-		}
-		else if (l_data < r_data)
-		{
-			to_write = l_data;
-
-			merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
-														merging_data, l_data);
-			l_data = cg::reduce(g, merging_data, cg::less<index_t>());
-		}
-		else
-		{
-			to_write = r_data;
-
-			this_row_idx++;
-		}
-
-		if (g.thread_rank() == 0)
-			new_row_indices[new_row_idx] = to_write;
-
-		new_row_idx++;
-	}
-
-	// merging rows are all merged
-	if (l_data == INT_MAX)
-	{
-		for (index_t i = this_row_idx + g.thread_rank(); i < this_row_size; i += g.num_threads())
-			new_row_indices[new_row_idx + i - this_row_idx] = this_row_indices[i];
-	}
-
-	if (this_row_idx == this_row_size)
-	{
-		while (l_data != INT_MAX)
-		{
-			if (g.thread_rank() == 0)
-				new_row_indices[new_row_idx++] = l_data;
-
-			increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size, l_data);
-			l_data = get_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size);
-		}
+		merging_data = increment_merging_data_small(g, merging_row_indices, merging_row_idx, merging_row_size,
+													merging_data, l_data);
+		l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 	}
 }
 
