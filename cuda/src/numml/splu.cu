@@ -206,7 +206,7 @@ __device__ index_t kway_merge_size_small(groupT& w, const index_t this_row,
 			}
 		}
 
-		merging_data = merging_row_indices[merging_row_idx];
+		merging_data = merging_row_idx != merging_row_size ? merging_row_indices[merging_row_idx] : INT_MAX;
 
 		index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 
@@ -302,7 +302,7 @@ __device__ void kway_merge_small(groupT& w, const index_t this_row, const index_
 		}
 	}
 
-	merging_data = merging_row_indices[merging_row_idx];
+	merging_data = merging_row_idx != merging_row_size ? merging_row_indices[merging_row_idx] : INT_MAX;
 
 	index_t l_data = cg::reduce(g, merging_data, cg::less<index_t>());
 
@@ -597,7 +597,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t sccs_rows, const in
 			}
 
 
-			//if (warp.thread_rank() == 0)
+			// if (warp.thread_rank() == 0)
 			//	printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, work_next_size,
 			//		   work_size);
 
@@ -835,7 +835,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	const index_t big_scc_rows = big_scc_sizes.back();
 
 	std::cout << "splu big scc rows " << big_scc_rows << std::endl;
-	std::cout << "splu big sccs" << big_scc_sizes.size() - 1 << std::endl;
+	std::cout << "splu big sccs " << big_scc_sizes.size() - 1 << std::endl;
 
 	const int threads_per_block = 512;
 
