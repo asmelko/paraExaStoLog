@@ -51,19 +51,34 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 	if (idx >= perm_size)
 		return;
 
-	index_t src_begin = src_indptr[src_perm[idx]];
-	index_t src_end = src_indptr[src_perm[idx] + 1];
+	index_t diag = src_perm[idx];
+	index_t src_begin = src_indptr[diag];
+	index_t size = src_indptr[diag + 1] - src_begin;
 
 	index_t dst_begin = dst_indptr[idx];
 
-	int i = 0;
-	for (; i < src_end - src_begin; i++)
+	bool diag_inserted = false;
+
+	for (int i = 0; i < size; i++)
 	{
-		dst_rows[dst_begin + i] = src_rows[src_begin + i];
+		index_t r = src_rows[src_begin + i];
+
+		if (!diag_inserted && r > diag)
+		{
+			dst_rows[dst_begin + i] = diag;
+			dst_data[dst_begin + i] = -(float)size;
+			diag_inserted = true;
+			dst_begin++;
+		}
+
+		dst_rows[dst_begin + i] = r;
 	}
 
-	dst_rows[dst_begin + i] = src_perm[idx];
-	dst_data[dst_begin + i] = -(float)i;
+	if (!diag_inserted)
+	{
+		dst_rows[dst_begin + size] = diag;
+		dst_data[dst_begin + size] = -(float)size;
+	}
 }
 
 __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
@@ -224,6 +239,47 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 	return nnz;
 }
 
+void solver::create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex)
+{
+	const auto nnz = rows.size();
+	const auto n = indptr.size() - 1;
+
+	d_idxvec cols(nnz);
+
+	// this decompresses indptr into cols
+	CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, indptr.data().get(), nnz, n, cols.data().get(),
+									CUSPARSE_INDEX_BASE_ZERO));
+
+	{
+		auto part_point = thrust::stable_partition(
+			thrust::make_zip_iterator(rows.begin(), cols.begin(), data.begin()),
+			thrust::make_zip_iterator(rows.end(), cols.end(), data.end()),
+			[remove_vertex] __device__(thrust::tuple<index_t, index_t, float> x) {
+				return thrust::get<0>(x) != remove_vertex && thrust::get<1>(x) != remove_vertex;
+			});
+
+		auto removed_n = thrust::get<0>(part_point.get_iterator_tuple()) - rows.begin();
+
+		rows.resize(removed_n);
+		cols.resize(removed_n);
+		data.resize(removed_n);
+
+		thrust::transform_if(
+			rows.begin(), rows.end(), rows.begin(), [] __device__(index_t x) { return x - 1; },
+			[remove_vertex] __device__(index_t x) { return x > remove_vertex; });
+
+		thrust::transform_if(
+			cols.begin(), cols.end(), cols.begin(), [] __device__(index_t x) { return x - 1; },
+			[remove_vertex] __device__(index_t x) { return x > remove_vertex; });
+	}
+
+	indptr.resize(n);
+
+	// this compresses rows back into indptr
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, cols.data().get(), cols.size(), n - 1,
+									indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+}
+
 void solver::solve_terminal_part()
 {
 	// BEWARE this expects that scc_offsets_ contains just terminal scc indices
@@ -251,67 +307,21 @@ void solver::solve_terminal_part()
 		d_idxvec scc_indptr, scc_rows;
 		thrust::device_vector<float> scc_data;
 
-		auto nnz = take_submatrix(scc_size, ordered_vertices_.begin() + terminals_offsets_[terminal_scc_idx - 1],
-								  scc_indptr, scc_rows, scc_data);
-
-		d_idxvec scc_cols(nnz);
-
-		std::cout << "DET: scc_size " << scc_size << " nnz " << nnz << std::endl;
-
-		// this decompresses indptr into cols
-		CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, scc_indptr.data().get(), nnz, scc_size,
-										scc_cols.data().get(), CUSPARSE_INDEX_BASE_ZERO));
-
-		std::cout << "Row to remove" << scc_size - 1 << std::endl;
-
-		// this removes last row
-		{
-			auto part_point = thrust::stable_partition(
-				thrust::make_zip_iterator(scc_rows.begin(), scc_cols.begin(), scc_data.begin()),
-				thrust::make_zip_iterator(scc_rows.end(), scc_cols.end(), scc_data.end()),
-				[remove_row = scc_size - 1] __device__(thrust::tuple<index_t, index_t, float> x) {
-					return thrust::get<0>(x) != remove_row;
-				});
-
-			auto removed_n = thrust::get<0>(part_point.get_iterator_tuple()) - scc_rows.begin();
-
-			scc_rows.resize(removed_n);
-			scc_cols.resize(removed_n);
-			scc_data.resize(removed_n);
-		}
-
-		// this compresses rows back into indptr
-		CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, scc_cols.data().get(), scc_cols.size(), scc_size,
-										scc_indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
-
-		// now we do minors
-		d_idxvec minor_indptr(scc_indptr.size()), minor_rows(scc_rows.size());
-		thrust::device_vector<float> minor_data(scc_rows.size());
-
-		thrust::host_vector<index_t> h_scc_indptr = scc_indptr;
+		take_submatrix(scc_size, ordered_vertices_.begin() + terminals_offsets_[terminal_scc_idx - 1], scc_indptr,
+					   scc_rows, scc_data);
 
 		thrust::host_vector<float> h_minors(scc_size);
 		for (size_t minor_i = 0; minor_i < scc_size; minor_i++)
 		{
 			// copy indptr
-			thrust::copy(scc_indptr.begin(), scc_indptr.begin() + minor_i + 1, minor_indptr.begin());
-			auto offset = h_scc_indptr[minor_i + 1] - h_scc_indptr[minor_i];
-			thrust::transform(scc_indptr.begin() + minor_i + 2, scc_indptr.end(), minor_indptr.begin() + minor_i + 1,
-							  [offset] __device__(index_t x) { return x - offset; });
+			d_idxvec minor_indptr = scc_indptr;
+			d_idxvec minor_rows = scc_rows;
+			d_datvec minor_data = scc_data;
 
-			// copy rows
-			thrust::copy(scc_rows.begin(), scc_rows.begin() + h_scc_indptr[minor_i], minor_rows.begin());
-			thrust::copy(scc_rows.begin() + h_scc_indptr[minor_i + 1], scc_rows.end(),
-						 minor_rows.begin() + h_scc_indptr[minor_i]);
-			// copy data
-			thrust::copy(scc_data.begin(), scc_data.begin() + h_scc_indptr[minor_i], minor_data.begin());
-			thrust::copy(scc_data.begin() + h_scc_indptr[minor_i + 1], scc_data.end(),
-						 minor_data.begin() + h_scc_indptr[minor_i]);
+			create_minor(minor_indptr, minor_rows, minor_data, minor_i);
 
-			std::cout << "minor" << minor_i << std::endl;
-
-			h_minors[minor_i] = std::abs(
-				determinant(minor_indptr, minor_rows, minor_data, scc_indptr.size() - 2, scc_data.size() - offset));
+			h_minors[minor_i] =
+				std::abs(determinant(minor_indptr, minor_rows, minor_data, minor_indptr.size() - 1, minor_data.size()));
 		}
 
 		thrust::device_vector<float> minors = h_minors;
@@ -443,36 +453,6 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	// print("A indptr ", indptr);
 	// print("A indice ", rows);
 	// print("A data   ", data);
-
-	{
-		cusparseMatDescr_t descr_N = 0;
-		size_t pBufferSizeInBytes;
-
-		CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
-		CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
-		CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
-
-		// step 1: allocate buffer
-		CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
-													  rows.data().get(), &pBufferSizeInBytes));
-		thrust::device_vector<char> buffer(pBufferSizeInBytes);
-
-		// step 2: setup permutation vector P to identity
-		d_idxvec P(nnz);
-		CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
-
-		// step 3: sort CSR format
-		CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
-										rows.data().get(), P.data().get(), buffer.data().get()));
-
-		// step 4: gather sorted csrVal
-		d_datvec sorted_data(data.size());
-		thrust::gather(P.begin(), P.end(), data.begin(), sorted_data.begin());
-		data = std::move(sorted_data);
-
-		CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_N));
-	}
-
 
 	d_idxvec M_indptr, M_indices;
 	d_datvec M_data;

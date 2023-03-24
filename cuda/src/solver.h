@@ -20,9 +20,6 @@ class solver
 
 	d_idxvec submatrix_vertex_mapping_;
 
-	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
-					  int nnz);
-
 
 	void matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, index_t lhs_rows, index_t lhs_cols,
 				index_t lhs_nnz, index_t* rhs_indptr, index_t* rhs_indices, float* rhs_data, index_t rhs_rows,
@@ -42,6 +39,11 @@ public:
 	thrust::device_vector<float> nonterm_data;
 
 	thrust::device_vector<float> final_state;
+
+	void create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex);
+
+	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+					  int nnz);
 
 	static void transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
 										const float* in_data, index_t in_n, index_t out_n, index_t nnz,

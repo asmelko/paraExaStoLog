@@ -55,6 +55,7 @@ foreach(target cudaExaStoLog unit_cudaExaStoLog exaStoLogCore)
 		target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -pedantic>)
 	endif()
   target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda>)
+  target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--source-in-ptx -lineinfo>)
 endforeach()
 
 add_custom_command(TARGET unit_cudaExaStoLog POST_BUILD
