@@ -37,8 +37,7 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	terminals_offsets_ =
 		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
-	nonterminals_offsets_ =
-		thrust::host_vector<index_t>(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
+	nonterminals_offsets_.assign(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
 }
 
 
@@ -478,7 +477,7 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	d_idxvec M_indptr, M_indices;
 	d_datvec M_data;
 
-	splu(context_, indptr, rows, data, M_indptr, M_indices, M_data);
+	splu(context_, nonterminals_offsets_, indptr, rows, data, M_indptr, M_indices, M_data);
 
 	cusparseMatDescr_t descr_L = 0;
 	cusparseMatDescr_t descr_U = 0;
