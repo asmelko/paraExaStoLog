@@ -98,8 +98,8 @@ d_idxvec transition_graph::compute_sccs()
 		thrust::device_vector<char> buffer(buffersize);
 		CHECK_CUSPARSE(cusparseCsr2cscEx2(
 			context_.cusparse_handle, n, n, nnz, dummy.data().get(), in_offsets.data().get(), in_indices.data().get(),
-			dummy.data().get(), out_offsets.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
-			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
+			dummy.data().get(), out_offsets.data().get(), out_indices.data().get(), CUDA_R_32F,
+			CUSPARSE_ACTION_SYMBOLIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
 
 	// print("in_offset ", in_offsets);
@@ -109,7 +109,8 @@ d_idxvec transition_graph::compute_sccs()
 
 	d_idxvec labels(n);
 
-	SCCSolver(n, nnz, in_offsets.data().get(), in_indices.data().get(), out_offsets.data().get(), out_indices.data().get(), labels.data().get());
+	SCCSolver(n, nnz, in_offsets.data().get(), in_indices.data().get(), out_offsets.data().get(),
+			  out_indices.data().get(), labels.data().get());
 
 	return labels;
 }
@@ -191,6 +192,7 @@ void transition_graph::find_terminals()
 	scc_ids.resize(scc_sizes.size() - 1);
 
 	d_idxvec original_sccs_offsets(scc_sizes.size());
+	scc_sizes[0] = 0;
 	thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), original_sccs_offsets.begin());
 
 	// print("labels    ", labels);
@@ -217,9 +219,8 @@ void transition_graph::find_terminals()
 		reordered_vertices = d_idxvec(thrust::make_counting_iterator<index_t>(0),
 									  thrust::make_counting_iterator<index_t>(vertices_count_));
 
-		terminals_offsets.resize(2);
-		terminals_offsets[0] = 0;
-		terminals_offsets[1] = vertices_count_;
+		terminals_count = 1;
+		sccs_offsets = std::move(scc_sizes);
 		return;
 	}
 
@@ -231,30 +232,22 @@ void transition_graph::find_terminals()
 
 	// get terminals
 	{
-		auto terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
-
-		std::cout << "terminals count " << terminals_count << std::endl;
-		std::cout << "scc_sizes count " << scc_sizes.size() << std::endl;
-
-		terminals_offsets.resize(terminals_count + 1);
-		terminals_offsets.assign(scc_sizes.begin(), scc_sizes.begin() + terminals_count + 1);
-
-		thrust::inclusive_scan(terminals_offsets.begin(), terminals_offsets.end(), terminals_offsets.begin());
+		terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
 	}
-
-	print("t offsets ", (d_idxvec)terminals_offsets);
 
 	// reorganize
 	{
 		scc_sizes[0] = 0;
 
 		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
-		thrust::reverse(scc_sizes.begin() + terminals_offsets.size(), scc_sizes.end());
-		thrust::reverse(meta_ordering.begin() + terminals_offsets.size() - 1, meta_ordering.end());
+		thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
+		thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
 
 		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
 
 		// print("20 scc sizes ", scc_sizes, 20);
+
+		sccs_offsets = std::move(scc_sizes);
 
 		reordered_vertices.resize(vertices_count_);
 
@@ -263,7 +256,7 @@ void transition_graph::find_terminals()
 
 		std::cout << "reorganize start" << std::endl;
 
-		reorganize<<<gridsize, blocksize>>>(sccs_count, original_sccs_offsets.data().get(), scc_sizes.data().get(),
+		reorganize<<<gridsize, blocksize>>>(sccs_count, original_sccs_offsets.data().get(), sccs_offsets.data().get(),
 											meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
 											reordered_vertices.data().get());
 

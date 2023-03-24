@@ -15,7 +15,7 @@ class solver
 	const d_idxvec& indptr_;	   // CSC
 
 	d_idxvec ordered_vertices_;
-	thrust::host_vector<index_t> terminals_offsets_;
+	thrust::host_vector<index_t> terminals_offsets_, nonterminals_offsets_;
 
 	d_idxvec submatrix_vertex_mapping_;
 

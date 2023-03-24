@@ -32,9 +32,15 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  cols_(t.cols),
 	  indptr_(t.indptr),
 	  ordered_vertices_(std::move(g.reordered_vertices)),
-	  terminals_offsets_(std::move(g.terminals_offsets)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
-{}
+{
+	terminals_offsets_ =
+		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+
+	nonterminals_offsets_ =
+		thrust::host_vector<index_t>(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
+}
+
 
 __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_t* __restrict__ dst_rows,
 								  float* __restrict__ dst_data, const index_t* __restrict__ src_rows,

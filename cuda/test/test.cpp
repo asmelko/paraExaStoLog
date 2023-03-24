@@ -71,7 +71,7 @@ TEST(trans_graph, toy)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -105,20 +105,14 @@ TEST(solver, toy)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
 
 	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
-	std::cout << "before" << std::endl;
-
-	std::cout << g.reordered_vertices.size() << g.terminals_offsets.size();
-
 	solver s(context, table, std::move(g), std::move(st));
-
-	std::cout << "after" << std::endl;
 
 	s.solve();
 
@@ -173,7 +167,7 @@ TEST(solver, toy2)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
@@ -235,7 +229,7 @@ TEST(solver, toy3)
 	g.find_terminals();
 
 	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets = g.terminals_offsets;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
@@ -372,7 +366,7 @@ TEST(solver, cohen)
 
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
 	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
-												   { 0.66441368, 0.1986147,  0.13697163 }));
+												   { 0.66441368, 0.1986147, 0.13697163 }));
 }
 
 TEST(solver, zanudo)
@@ -390,10 +384,8 @@ TEST(solver, zanudo)
 
 	g.find_terminals();
 
-	initial_state st(
-		model.nodes,
-		{"Alpelisib", "Everolimus","PIM","Proliferation","Apoptosis" },
-		{ false, true, false, false, false  }, 1.f);
+	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
+					 { false, true, false, false, false }, 1.f);
 
 	solver s(context, table, std::move(g), std::move(st));
 
@@ -416,7 +408,7 @@ TEST(solver, zanudo)
 
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
 	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
-												   { 0.66441368, 0.1986147,  0.13697163 }));
+												   { 0.66441368, 0.1986147, 0.13697163 }));
 }
 
 TEST(solver, t026)
@@ -438,8 +430,7 @@ TEST(solver, t026)
 
 	std::cout << "after graph" << std::endl;
 
-	initial_state st(
-		model.nodes);
+	initial_state st(model.nodes);
 
 	solver s(context, table, std::move(g), std::move(st));
 
@@ -462,5 +453,5 @@ TEST(solver, t026)
 
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
 	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
-												   { 0.66441368, 0.1986147,  0.13697163 }));
+												   { 0.66441368, 0.1986147, 0.13697163 }));
 }
