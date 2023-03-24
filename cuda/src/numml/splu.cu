@@ -333,15 +333,10 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 {
 	const index_t row = (blockIdx.x * blockDim.x + threadIdx.x) / 32;
 
-	// printf("thread %i row %i\n", blockIdx.x * blockDim.x + threadIdx.x, row);
-
 	auto warp = cg::tiled_partition<32>(cg::this_thread_block());
 
 	if (row >= A_rows)
 		return;
-
-	// if (warp.thread_rank() == 0)
-	//	printf("row %i started\n", row);
 
 	index_t row_size;
 	index_t* row_indices;
