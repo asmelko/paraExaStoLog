@@ -71,7 +71,9 @@ __device__ index_t increment_merging_data_small(groupT& g, indT* __restrict__ ro
 
 	row_idx += are_same ? 1 : 0;
 
-	return are_same ? (row_idx != row_size ? row_indices[row_idx] : INT_MAX) : curr_data;
+	const bool not_end = row_idx != row_size;
+
+	return not_end ? row_indices[row_idx] : INT_MAX;
 }
 
 template <typename groupT>
@@ -344,9 +346,9 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 	index_t row_size;
 	index_t* row_indices;
 
-	index_t scratchpad_alloc_size = 0;
-	index_t scratchpad_size = 0;
-	index_t* scratchpad = nullptr;
+	index_t work_alloc_size = 0;
+	index_t work_size = 0;
+	index_t* __restrict__ work_items = nullptr;
 
 	{
 		const index_t row_indices_begin = A_indptr[row];
@@ -363,59 +365,35 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 		{
 			index_t col = (A_indices + row_indices_begin)[i];
 			row_indices[i] = col;
-			if (col == row)
-				scratchpad_alloc_size = i;
+			work_alloc_size = (col == row) ? i : 0;
 		}
 
 		warp.sync();
 
-		auto mask = warp.ballot(scratchpad_alloc_size);
+		auto mask = warp.ballot(work_alloc_size);
 
-		// if (scratchpad_alloc_size && mask == 0)
-		//	printf("error\n");
+		int lane_id = 0;
+		while (mask >>= 1)
+			lane_id++;
 
-		if (mask != 0)
-		{
-			int lane_id = -1;
-			while (mask)
-			{
-				mask >>= 1;
-				lane_id++;
-			}
+		work_alloc_size = warp.shfl(work_alloc_size, lane_id);
 
-			scratchpad_alloc_size = warp.shfl(scratchpad_alloc_size, lane_id);
-		}
+		work_size = work_alloc_size;
 
-		// if (bef != 0 && scratchpad_alloc_size == 0)
-		//	printf("error\n");
-
-
-		/*	if (scratchpad_alloc_size != 0)
-				printf("thread %i scs\n", (int)warp.thread_rank());*/
-
-		scratchpad_size = scratchpad_alloc_size;
-
-		if (scratchpad_alloc_size)
+		if (work_alloc_size)
 		{
 			if (warp.thread_rank() == 0)
-				scratchpad = allocate<index_t>((scratchpad_size + 1) * 3);
-			scratchpad = warp.shfl(scratchpad, 0);
+				work_items = allocate<index_t>((work_size + 1) * 3);
+			work_items = warp.shfl(work_items, 0);
 
-			for (index_t i = warp.thread_rank(); i < scratchpad_size; i += warp.num_threads())
-				scratchpad[i] = row_indices[i];
+			for (index_t i = warp.thread_rank(); i < work_size; i += warp.num_threads())
+				work_items[i] = row_indices[i];
 		}
 	}
 
-	// if (warp.thread_rank() == 0)
-	//{
-	//	for (index_t i = 0; i < scratchpad_size; i++)
-	//		if (scratchpad[i] != row_indices[i])
-	//			printf("error\n");
-	// }
-
 	index_t iteration = 0;
 
-	while (scratchpad_size)
+	while (work_size)
 	{
 		if (warp.thread_rank() == 0)
 		{
@@ -427,127 +405,117 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t A_rows, const index
 
 		iteration++;
 
-		index_t* __restrict__ scratchpad_wip = scratchpad + scratchpad_size;
-		index_t scratchpad_wip_size = 0;
+		index_t work_opp_size = 0;
+		index_t* __restrict__ work_opp_items = work_items + work_size;
 
-		while (scratchpad_wip_size == 0)
+		while (work_opp_size == 0)
 		{
 			if (warp.thread_rank() == 0)
 			{
-				scratchpad_wip_size = 0;
 				index_t new_offset = 0;
 
-				for (index_t i = 0; i < scratchpad_size; i++)
+				for (index_t i = 0; i < work_size; i++)
 				{
-					const index_t index = scratchpad[i];
+					const index_t index = work_items[i];
 
 					if (degree[index] == 0)
-						scratchpad_wip[scratchpad_wip_size++] = index;
+						work_opp_items[work_opp_size++] = index;
 					else
-						scratchpad[new_offset++] = index;
+						work_items[new_offset++] = index;
 				}
 			}
-			scratchpad_wip_size = warp.shfl(scratchpad_wip_size, 0);
+			work_opp_size = warp.shfl(work_opp_size, 0);
 		}
 
 
-		index_t new_work_size;
-		index_t new_size =
-			kway_merge_size_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad_wip,
-									 scratchpad_wip + scratchpad_wip_size + 1, scratchpad_wip_size, new_work_size);
+		index_t work_new_size;
+		index_t row_new_size =
+			kway_merge_size_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, work_opp_items,
+									 work_opp_items + work_opp_size + 1, work_opp_size, work_new_size);
 
 		// add not processed work
-		index_t old_work_size = scratchpad_size - scratchpad_wip_size;
+		index_t work_old_size = work_size - work_opp_size;
+		index_t work_next_size = work_new_size + work_old_size;
 
-		index_t next_work_size = new_work_size + old_work_size;
-
-		if (new_size == row_size)
+		if (row_new_size == row_size)
 		{
-			scratchpad_size = next_work_size;
+			work_size = work_next_size;
 		}
 		else // update row
 		{
-			index_t* row_indices_new;
+			index_t* row_new_indices;
 			if (warp.thread_rank() == 0)
-				row_indices_new = allocate<index_t>(new_size);
-			row_indices_new = warp.shfl(row_indices_new, 0);
+				row_new_indices = allocate<index_t>(row_new_size);
+			row_new_indices = warp.shfl(row_new_indices, 0);
 
-			kway_merge_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, scratchpad_wip,
-								scratchpad_wip + scratchpad_wip_size + 1, scratchpad_wip_size, row_indices_new);
+			kway_merge_dispatch(warp, row, row_indices, row_size, As_indices, As_nnz, work_opp_items,
+								work_opp_items + work_opp_size + 1, work_opp_size, row_new_indices);
 
 			warp.sync();
 
-			// update scratchpad
-			if (next_work_size)
+			// update work_items
+			if (work_next_size)
 			{
 				if (warp.thread_rank() == 0)
 				{
-					if (next_work_size > scratchpad_alloc_size)
+					if (work_next_size > work_alloc_size)
 					{
-						scratchpad_alloc_size = next_work_size;
+						work_alloc_size = work_next_size;
 
-						auto new_scratchpad = allocate<index_t>((scratchpad_alloc_size + 1) * 3);
+						index_t* new_scratchpad = allocate<index_t>((work_alloc_size + 1) * 3);
 
-						find_new_work(row, row_indices_new, new_size, row_indices, row_size,
-									  new_scratchpad + scratchpad_alloc_size);
+						find_new_work(row, row_new_indices, row_new_size, row_indices, row_size,
+									  new_scratchpad + work_alloc_size);
 
-						auto new_end = thrust::set_union(
-							thrust::seq, scratchpad, scratchpad + old_work_size, new_scratchpad + scratchpad_alloc_size,
-							new_scratchpad + scratchpad_alloc_size + new_work_size, new_scratchpad);
+						thrust::set_union(thrust::seq, work_items, work_items + work_old_size,
+										  new_scratchpad + work_alloc_size,
+										  new_scratchpad + work_alloc_size + work_new_size, new_scratchpad);
 
-
-						free(scratchpad);
-						scratchpad = new_scratchpad;
+						free(work_items);
+						work_items = new_scratchpad;
 					}
 					else
 					{
-						find_new_work(row, row_indices_new, new_size, row_indices, row_size,
-									  scratchpad + scratchpad_alloc_size);
+						find_new_work(row, row_new_indices, row_new_size, row_indices, row_size,
+									  work_items + work_alloc_size);
 
-						thrust::set_union(
-							thrust::seq, scratchpad, scratchpad + old_work_size, scratchpad + scratchpad_alloc_size,
-							scratchpad + scratchpad_alloc_size + new_work_size, scratchpad + 2 * scratchpad_alloc_size);
+						thrust::set_union(thrust::seq, work_items, work_items + work_old_size,
+										  work_items + work_alloc_size, work_items + work_alloc_size + work_new_size,
+										  work_items + 2 * work_alloc_size);
 
-						thrust::copy(thrust::seq, scratchpad + 2 * scratchpad_alloc_size,
-									 scratchpad + 2 * scratchpad_alloc_size + next_work_size, scratchpad);
-
+						thrust::copy(thrust::seq, work_items + 2 * work_alloc_size,
+									 work_items + 2 * work_alloc_size + work_next_size, work_items);
 					}
 				}
 
-				scratchpad = warp.shfl(scratchpad, 0);
+				work_items = warp.shfl(work_items, 0);
 			}
 
 
-		/*	if (warp.thread_rank() == 0)
-				printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, next_work_size,
-					   scratchpad_size);*/
+			/*	if (warp.thread_rank() == 0)
+					printf("iteration %i row %i new work size %i old work size %i\n", iteration, row, work_next_size,
+						   work_size);*/
 
-			scratchpad_size = next_work_size;
-
-			/*if (warp.thread_rank() == 0)
-				printf("row %i after new work \n", row);*/
+			work_size = work_next_size;
 
 			// update row size and indices
-			row_size = new_size;
+			row_size = row_new_size;
 			if (warp.thread_rank() == 0)
 				free(row_indices);
-			row_indices = row_indices_new;
+			row_indices = row_new_indices;
 		}
 	}
 
-	if (warp.thread_rank() == 0)
-	{
-		if (scratchpad)
-			free(scratchpad);
+	if (warp.thread_rank() != 0)
+		return;
 
-		As_nnz[row] = row_size;
-		As_indices[row] = row_indices;
+	if (work_items)
+		free(work_items);
 
-		__threadfence();
-		degree[row] = 0;
+	As_nnz[row] = row_size;
+	As_indices[row] = row_indices;
 
-		// printf("row %i finished\n", row);
-	}
+	degree[row] = 0;
 }
 
 
