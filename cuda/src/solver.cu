@@ -113,75 +113,32 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int nnz)
 {
-	thrust::host_vector<index_t> h_indptr = indptr;
-	thrust::host_vector<index_t> h_rows = rows;
-	thrust::host_vector<float> h_data = data;
+	d_idxvec scc(2);
+	scc[0] = 0;
+	scc[1] = n;
 
-	csrluInfoHost_t info;
-	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
+	d_idxvec M_indptr, M_indices;
+	d_datvec M_data;
 
-	cusparseMatDescr_t descr, descr_L, descr_U;
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
+	splu(context_, scc, indptr, rows, data, M_indptr, M_indices, M_data);
 
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
+	d_idxvec diag(n);
 
-	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
-	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
-	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
-	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
-	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
-
-	CHECK_CUSOLVER(
-		cusolverSpXcsrluAnalysisHost(context_.cusolver_handle, n, nnz, descr, h_indptr.data(), h_rows.data(), info));
-
-	size_t internal_data, workspace;
-	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(context_.cusolver_handle, n, nnz, descr, h_data.data(),
-												  h_indptr.data(), h_rows.data(), info, &internal_data, &workspace));
-
-	std::vector<char> buffer(workspace);
-
-	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(context_.cusolver_handle, n, nnz, descr, h_data.data(), h_indptr.data(),
-											  h_rows.data(), info, 0.1f, buffer.data()));
-
-	int nnz_l, nnz_u;
-	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(context_.cusolver_handle, &nnz_l, &nnz_u, info));
-
-	std::vector<index_t> P(n), Q(n), L_indptr(n + 1), U_indptr(n + 1), L_cols(nnz_l), U_cols(nnz_u);
-	std::vector<float> L_data(nnz_l), U_data(nnz_u);
-
-	CHECK_CUSOLVER(cusolverSpScsrluExtractHost(context_.cusolver_handle, P.data(), Q.data(), descr_L, L_data.data(),
-											   L_indptr.data(), L_cols.data(), descr_U, U_data.data(), U_indptr.data(),
-											   U_cols.data(), info, buffer.data()));
-
-	std::vector<float> diag(n);
-
-	thrust::for_each(thrust::host, thrust::make_counting_iterator<index_t>(0),
-					 thrust::make_counting_iterator<index_t>(n), [&](index_t i) {
-						 auto begin = U_indptr[i];
-						 auto end = U_indptr[i + 1];
+	thrust::for_each(thrust::device, thrust::make_counting_iterator<index_t>(0),
+					 thrust::make_counting_iterator<index_t>(n),
+					 [M_indptr_v = M_indptr.data().get(), M_indices_v = M_indices.data().get(),
+					  M_data_v = M_data.data().get(), diag_v = diag.data().get()] __device__(index_t i) {
+						 auto begin = M_indptr_v[i];
+						 auto end = M_indptr_v[i + 1];
 
 						 for (auto col_idx = begin; col_idx != end; col_idx++)
 						 {
-							 if (U_cols[col_idx] == i)
-								 diag[i] = U_data[col_idx];
+							 if (M_indices_v[col_idx] == i)
+								 diag_v[i] = M_data_v[col_idx];
 						 }
 					 });
 
-	float determinant = thrust::reduce(thrust::host, diag.begin(), diag.end(), 1, thrust::multiplies<float>());
-
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
-	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
-	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
-
-	return determinant;
+	return thrust::reduce(diag.begin(), diag.end(), 1, thrust::multiplies<float>());
 }
 
 index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
