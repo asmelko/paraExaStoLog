@@ -5,6 +5,7 @@
 #include <thrust/adjacent_difference.h>
 #include <thrust/binary_search.h>
 #include <thrust/execution_policy.h>
+#include <thrust/partition.h>
 #include <thrust/set_operations.h>
 
 #include "../solver.h"
@@ -13,6 +14,8 @@
 #include "splu.h"
 
 namespace cg = cooperative_groups;
+
+constexpr size_t big_scc_threshold = 2;
 
 template <typename T>
 __device__ T* allocate(int size)
@@ -366,23 +369,38 @@ __device__ void find_new_work(const index_t row, const index_t* __restrict__ new
 	}
 }
 
-__global__ void cuda_kernel_splu_symbolic_fact_triv(const index_t sccs_size, const index_t* __restrict__ sccs_offsets,
+__global__ void cuda_kernel_splu_symbolic_fact_triv(const index_t sccs_rows, const index_t scc_count,
+													const index_t* __restrict__ scc_sizes,
+													const index_t* __restrict__ scc_offsets,
 													const index_t* __restrict__ A_indices,
 													const index_t* __restrict__ A_indptr, index_t* __restrict__ As_nnz,
 													index_t* __restrict__* __restrict__ As_indices)
 {
-	const index_t scc_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	index_t row = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (scc_idx >= sccs_size)
+	if (row >= sccs_rows)
 		return;
 
-	index_t row = sccs_offsets[scc_idx];
-	const index_t scc_size = sccs_offsets[scc_idx + 1] - row;
-	row -= sccs_offsets[0]; // it does not start from 0
+	const index_t scc_index = thrust::upper_bound(thrust::seq, scc_sizes, scc_sizes + scc_count, row) - scc_sizes;
 
-	if (scc_size > 2)
+	const index_t scc_offset = scc_offsets[scc_index];
+	const index_t in_scc_offset = row - (scc_index == 0 ? 0 : scc_sizes[scc_index - 1]);
+
+	const index_t scc_size = scc_index == 0 ? scc_sizes[scc_index] : scc_sizes[scc_index] - scc_sizes[scc_index - 1];
+
+	//printf("row %i idx %i off %i inoff %i size %i\n", row, scc_index, scc_offset, in_scc_offset, scc_size);
+
+	row = scc_offset + in_scc_offset;
+
+
+
+	if (scc_size > big_scc_threshold)
+	{
+		printf("problem\n");
 		return;
+	}
 
+	if (scc_size == 1 || in_scc_offset == 0)
 	{
 		const index_t row_indices_begin = A_indptr[row];
 		index_t row_size = A_indptr[row + 1] - row_indices_begin;
@@ -394,21 +412,16 @@ __global__ void cuda_kernel_splu_symbolic_fact_triv(const index_t sccs_size, con
 		As_indices[row] = row_indices;
 		As_nnz[row] = row_size;
 	}
-
-	if (scc_size == 1)
-		return;
-
-	row++;
-
+	else
 	{
 		const index_t row_indices_begin = A_indptr[row];
 		index_t row_size = A_indptr[row + 1] - row_indices_begin;
-
 		const index_t* row_indices = A_indices + row_indices_begin;
 
 		const index_t merging_row = row - 1;
-		const index_t* merging_row_indices = As_indices[row - 1];
-		const index_t merging_row_size = As_nnz[row - 1];
+		const index_t merging_row_indices_begin = A_indptr[merging_row];
+		index_t merging_row_size = A_indptr[merging_row + 1] - merging_row_indices_begin;
+		const index_t* merging_row_indices = A_indices + merging_row_indices_begin;
 
 		const index_t new_row_size =
 			merge_size(row, row_indices, row_size, merging_row, merging_row_indices, merging_row_size);
@@ -437,17 +450,15 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t sccs_rows, const in
 		return;
 
 	{
-		const index_t scc_index =
-			thrust::upper_bound(thrust::seq, scc_sizes, scc_sizes + scc_count + 1, row) - scc_sizes - 1;
+		const index_t scc_index = thrust::upper_bound(thrust::seq, scc_sizes, scc_sizes + scc_count, row) - scc_sizes;
 
 		const index_t scc_offset = scc_offsets[scc_index];
-		const index_t in_scc_offset = row - scc_sizes[scc_index];
+		const index_t in_scc_offset = row - (scc_index == 0 ? 0 : scc_sizes[scc_index - 1]);
 
 		row = scc_offset + in_scc_offset;
 	}
 
 	auto warp = cg::tiled_partition<32>(cg::this_thread_block());
-
 
 	index_t row_size;
 	index_t* row_indices;
@@ -800,6 +811,57 @@ __global__ void cuda_kernel_splu_numeric_sflu(const index_t A_rows, const index_
 	degree[k]--;
 }
 
+index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_sizes, d_idxvec& partitioned_scc_offsets)
+{
+	d_idxvec scc_sizes(scc_offsets.size());
+
+	thrust::adjacent_difference(scc_offsets.begin(), scc_offsets.end(), scc_sizes.begin());
+
+	partitioned_scc_sizes.assign(scc_sizes.begin() + 1, scc_sizes.end());
+	partitioned_scc_offsets.assign(scc_offsets.begin(), scc_offsets.end() - 1);
+
+	auto part_point = thrust::stable_partition(
+		thrust::make_zip_iterator(partitioned_scc_sizes.begin(), partitioned_scc_offsets.begin()),
+		thrust::make_zip_iterator(partitioned_scc_sizes.end(), partitioned_scc_offsets.end()),
+		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) <= big_scc_threshold; });
+
+	index_t small_sccs = thrust::get<1>(part_point.get_iterator_tuple()) - partitioned_scc_offsets.begin();
+
+	/*big_scc_sizes.resize(thrust::get<0>(big_scc_end.get_iterator_tuple()) - big_scc_sizes.begin());
+	big_scc_offsets.resize(big_scc_sizes.size() - 1);*/
+
+	// we need to do this because of terminals that were stored before nonterminals
+	index_t base_offset = scc_offsets.front();
+	thrust::transform(partitioned_scc_offsets.begin(), partitioned_scc_offsets.end(), partitioned_scc_offsets.begin(),
+					  [base_offset] __device__(index_t x) { return x - base_offset; });
+
+	thrust::inclusive_scan(partitioned_scc_sizes.begin(), partitioned_scc_sizes.begin() + small_sccs,
+						   partitioned_scc_sizes.begin());
+	thrust::inclusive_scan(partitioned_scc_sizes.begin() + small_sccs, partitioned_scc_sizes.end(),
+						   partitioned_scc_sizes.begin() + small_sccs);
+
+	// const index_t big_scc_rows = big_scc_sizes.back();
+	// std::cout << "splu big sccs " << big_scc_sizes.size() - 1 << std::endl;
+	// std::cout << "splu big scc rows " << big_scc_rows << std::endl;
+	/*print("scc offs ", scc_offsets);
+	print("par offs ", partitioned_scc_offsets);
+	print("par size ", partitioned_scc_sizes);*/
+
+	return small_sccs;
+}
+
+void lu_small_nnz(const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
+				  const d_datvec& A_data, d_idxvec& As_indptr)
+{}
+
+void lu_small_populate(const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
+					   const d_datvec& A_data, d_idxvec& As_indptr)
+{}
+
+void lu_big_nnz_and_populate(const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
+							 const d_datvec& A_data, d_idxvec& As_indptr)
+{}
+
 /**
  * Sparse LU Factorization, using a left-looking algorithm on the columns of A.  Based on
  * the symbolic factorization from Rose, Tarjan's fill2 and numeric factorization in SFLU.
@@ -807,36 +869,18 @@ __global__ void cuda_kernel_splu_numeric_sflu(const index_t A_rows, const index_
 void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
 		  const d_datvec& A_data, d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data)
 {
-	d_idxvec scc_sizes(scc_offsets.size());
+	d_idxvec part_scc_sizes, part_scc_offsets;
+	auto small_sccs_size = partition_sccs(scc_offsets, part_scc_sizes, part_scc_offsets);
+	auto big_sccs_size = scc_offsets.size() - 1 - small_sccs_size;
 
-
-
-	thrust::adjacent_difference(scc_offsets.begin(), scc_offsets.end(), scc_sizes.begin());
-	scc_sizes[0] = 0;
-
-	d_idxvec big_scc_sizes(scc_offsets.size()), big_scc_offsets(scc_offsets.size());
-
-	auto big_scc_end =
-		thrust::copy_if(thrust::make_zip_iterator(scc_sizes.begin() + 1, scc_offsets.begin()),
-						thrust::make_zip_iterator(scc_sizes.end(), scc_offsets.end() - 1),
-						thrust::make_zip_iterator(big_scc_sizes.begin() + 1, big_scc_offsets.begin()),
-						[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) > 2; });
-
-	big_scc_sizes.resize(thrust::get<0>(big_scc_end.get_iterator_tuple()) - big_scc_sizes.begin());
-	big_scc_offsets.resize(big_scc_sizes.size() - 1);
-
-	index_t base_offset = scc_offsets.front();
-	thrust::transform(big_scc_offsets.begin(), big_scc_offsets.end(), big_scc_offsets.begin(),
-					  [base_offset] __device__(index_t x) { return x - base_offset; });
-
-	big_scc_sizes[0] = 0;
-
-	thrust::inclusive_scan(big_scc_sizes.begin(), big_scc_sizes.end(), big_scc_sizes.begin());
-
-	const index_t big_scc_rows = big_scc_sizes.back();
+	const index_t small_scc_rows = small_sccs_size == 0 ? 0 : part_scc_sizes[small_sccs_size - 1];
+	const index_t big_scc_rows = big_sccs_size == 0 ? 0 : part_scc_sizes.back();
 
 	std::cout << "splu big scc rows " << big_scc_rows << std::endl;
-	std::cout << "splu big sccs " << big_scc_sizes.size() - 1 << std::endl;
+	std::cout << "splu big sccs " << big_sccs_size << std::endl;
+
+	std::cout << "splu small scc rows " << small_scc_rows << std::endl;
+	std::cout << "splu small sccs " << small_sccs_size << std::endl;
 
 	const int threads_per_block = 512;
 
@@ -863,18 +907,19 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	CHECK_CUDA(cudaDeviceSynchronize());
 	// print("L_nnz ", d_idxvec(L_nnz, L_nnz + A_rows));
 
-	cuda_kernel_splu_symbolic_fact_triv<<<(scc_offsets.size() - 1 + threads_per_block - 1) / threads_per_block,
-										  threads_per_block>>>(scc_offsets.size() - 1, scc_offsets.data().get(),
-															   A_indices.data().get(), A_indptr.data().get(),
-															   As_indptr.data().get() + 1, As_indices_by_row);
+	cuda_kernel_splu_symbolic_fact_triv<<<(small_scc_rows + threads_per_block - 1) / threads_per_block,
+										  threads_per_block>>>(
+		small_scc_rows, small_sccs_size, part_scc_sizes.data().get(), part_scc_offsets.data().get(),
+		A_indices.data().get(), A_indptr.data().get(), As_indptr.data().get() + 1, As_indices_by_row);
 
 	std::cout << "splu triv done" << std::endl;
 
 	if (big_scc_rows)
 		cuda_kernel_splu_symbolic_fact<<<(big_scc_rows + (threads_per_block / 32) - 1) / (threads_per_block / 32),
 										 threads_per_block>>>(
-			big_scc_rows, big_scc_sizes.size() - 1, big_scc_sizes.data().get(), big_scc_offsets.data().get(),
-			A_indices.data().get(), A_indptr.data().get(), As_indptr.data().get() + 1, As_indices_by_row, L_nnz);
+			big_scc_rows, big_sccs_size, part_scc_sizes.data().get() + small_sccs_size,
+			part_scc_offsets.data().get() + small_sccs_size, A_indices.data().get(), A_indptr.data().get(),
+			As_indptr.data().get() + 1, As_indices_by_row, L_nnz);
 
 	CHECK_CUDA(cudaDeviceSynchronize());
 
