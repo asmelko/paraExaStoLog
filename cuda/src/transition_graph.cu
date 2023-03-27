@@ -5,6 +5,7 @@
 #include <thrust/unique.h>
 
 #include "sga/scc.h"
+#include "sparse_utils.h"
 #include "transition_graph.h"
 #include "transition_table.h"
 #include "utils.h"
@@ -166,7 +167,7 @@ void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_cou
 
 	meta_indices = std::move(meta_rows);
 
-	transition_table::coo2csc(context_.cusparse_handle, sccs_count, meta_indices, meta_cols, meta_indptr);
+	coo2csc(context_.cusparse_handle, sccs_count, meta_indices, meta_cols, meta_indptr);
 }
 
 void transition_graph::find_terminals()
@@ -237,8 +238,6 @@ void transition_graph::find_terminals()
 
 	// reorganize
 	{
-		scc_sizes[0] = 0;
-
 		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
 		thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
 		thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());

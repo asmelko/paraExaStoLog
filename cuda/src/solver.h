@@ -3,6 +3,7 @@
 #include <thrust/host_vector.h>
 
 #include "initial_state.h"
+#include "sparse_utils.h"
 #include "transition_graph.h"
 #include "transition_table.h"
 
@@ -50,8 +51,7 @@ public:
 										d_idxvec& out_indptr, d_idxvec& out_indices,
 										thrust::device_vector<float>& out_data);
 
-	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
-						   d_idxvec& submatrix_rows, thrust::device_vector<float>& submatrix_data,
+	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 						   bool mapping_prefilled = false);
 
 	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
@@ -60,8 +60,6 @@ public:
 					  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
 					  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
 					  thrust::device_vector<float>& x_data);
-
-	void reorganize_terminal_sccs();
 
 	void solve_terminal_part();
 

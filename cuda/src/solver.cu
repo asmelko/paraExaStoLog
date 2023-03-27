@@ -8,13 +8,13 @@
 #include <thrust/partition.h>
 
 #include "numml/splu.h"
+#include "solver.h"
+#include "utils.h"
 
 constexpr float zero_threshold = 1e-10f;
 
 __device__ __host__ bool is_zero(float x) { return (x > 0 ? x : -x) <= zero_threshold; }
 
-#include "solver.h"
-#include "utils.h"
 
 struct equals_ftor : public thrust::unary_function<index_t, bool>
 {
@@ -141,12 +141,11 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 	return thrust::reduce(diag.begin(), diag.end(), 1, thrust::multiplies<float>());
 }
 
-index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, d_idxvec& submatrix_indptr,
-							   d_idxvec& submatrix_rows, thrust::device_vector<float>& submatrix_data,
+index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 							   bool mapping_prefilled)
 {
-	submatrix_indptr.resize(n + 1);
-	submatrix_indptr[0] = 0;
+	m.indptr.resize(n + 1);
+	m.indptr[0] = 0;
 
 	// this creates indptr of scc in CSC
 	{
@@ -159,23 +158,23 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 		// first get sizes of each col - also add 1 for diagonal part
 		thrust::transform(
 			thrust::make_zip_iterator(scc_begins_b, scc_ends_b), thrust::make_zip_iterator(scc_begins_e, scc_ends_e),
-			submatrix_indptr.begin() + 1,
+			m.indptr.begin() + 1,
 			[] __device__(thrust::tuple<index_t, index_t> x) { return 1 + thrust::get<1>(x) - thrust::get<0>(x); });
 
-		thrust::inclusive_scan(submatrix_indptr.begin(), submatrix_indptr.end(), submatrix_indptr.begin());
+		thrust::inclusive_scan(m.indptr.begin(), m.indptr.end(), m.indptr.begin());
 	}
 
-	index_t nnz = submatrix_indptr.back();
-	submatrix_rows.resize(nnz);
-	submatrix_data = thrust::device_vector<float>(nnz, 1.f);
+	index_t nnz = m.indptr.back();
+	m.indices.resize(nnz);
+	m.data.assign(nnz, 1.f);
 
 	// this creates rows and data of scc
 	{
 		int blocksize = 512;
 		int gridsize = (n + blocksize - 1) / blocksize;
-		scatter_rows_data<<<gridsize, blocksize>>>(submatrix_indptr.data().get(), submatrix_rows.data().get(),
-												   submatrix_data.data().get(), rows_.data().get(),
-												   indptr_.data().get(), (&*vertices_subset_begin).get(), n);
+		scatter_rows_data<<<gridsize, blocksize>>>(m.indptr.data().get(), m.indices.data().get(), m.data.data().get(),
+												   rows_.data().get(), indptr_.data().get(),
+												   (&*vertices_subset_begin).get(), n);
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	}
@@ -189,7 +188,7 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 						 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), vertices_subset_begin));
 		}
 
-		thrust::transform(submatrix_rows.begin(), submatrix_rows.end(), submatrix_rows.begin(),
+		thrust::transform(m.indices.begin(), m.indices.end(), m.indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 	}
 
@@ -239,9 +238,6 @@ void solver::create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, cons
 
 void solver::solve_terminal_part()
 {
-	// BEWARE this expects that scc_offsets_ contains just terminal scc indices
-
-	std::cout << "to back" << terminals_offsets_.back() << std::endl;
 	term_indptr = terminals_offsets_;
 	term_rows.resize(terminals_offsets_.back());
 	term_data.resize(terminals_offsets_.back());
@@ -254,26 +250,23 @@ void solver::solve_terminal_part()
 	{
 		size_t scc_size = terminals_offsets_[terminal_scc_idx] - terminals_offsets_[terminal_scc_idx - 1];
 
-
 		if (scc_size == 1)
 		{
 			term_data[terminals_offsets_[terminal_scc_idx - 1]] = 1;
 			continue;
 		}
 
-		d_idxvec scc_indptr, scc_rows;
-		thrust::device_vector<float> scc_data;
+		sparse_csc_matrix scc;
 
-		take_submatrix(scc_size, ordered_vertices_.begin() + terminals_offsets_[terminal_scc_idx - 1], scc_indptr,
-					   scc_rows, scc_data);
+		take_submatrix(scc_size, ordered_vertices_.begin() + terminals_offsets_[terminal_scc_idx - 1], scc);
 
 		thrust::host_vector<float> h_minors(scc_size);
 		for (size_t minor_i = 0; minor_i < scc_size; minor_i++)
 		{
 			// copy indptr
-			d_idxvec minor_indptr = scc_indptr;
-			d_idxvec minor_rows = scc_rows;
-			d_datvec minor_data = scc_data;
+			d_idxvec minor_indptr = scc.indptr;
+			d_idxvec minor_rows = scc.indices;
+			d_datvec minor_data = scc.data;
 
 			create_minor(minor_indptr, minor_rows, minor_data, minor_i);
 
@@ -287,10 +280,6 @@ void solver::solve_terminal_part()
 		thrust::transform(minors.begin(), minors.end(), term_data.begin() + terminals_offsets_[terminal_scc_idx - 1],
 						  [sum] __device__(float x) { return x / sum; });
 	}
-
-	print("terminal indptr  ", term_indptr);
-	print("terminal indices ", term_rows);
-	print("terminal data    ", term_data);
 }
 
 
@@ -561,56 +550,61 @@ void solver::solve_nonterminal_part()
 	}
 
 	// -U
-	d_idxvec& U_indptr_csr = term_indptr;
-	d_idxvec U_cols(term_rows.size());
-
-	thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
-				 thrust::make_counting_iterator<intptr_t>(terminal_vertices_n),
-				 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), ordered_vertices_.begin()));
-
-	thrust::transform(ordered_vertices_.begin(), ordered_vertices_.begin() + terminals_offsets_.back(), U_cols.begin(),
-					  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
-
-	thrust::device_vector<float> U_data(term_rows.size(), -1.f);
-
-	// NB
-
-	d_idxvec nb_indptr_csc, nb_rows;
-	thrust::device_vector<float> nb_data_csc;
-
-	// custom mapping
+	sparse_csr_matrix U;
 	{
-		thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
-					 thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
-					 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(),
-													   ordered_vertices_.begin() + terminals_offsets_.back()));
+		U.indptr = term_indptr;
+		U.indices.resize(term_rows.size());
 
-		thrust::copy(thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
-					 thrust::make_counting_iterator<intptr_t>(n),
+		thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
+					 thrust::make_counting_iterator<intptr_t>(terminal_vertices_n),
 					 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), ordered_vertices_.begin()));
+
+		thrust::transform(ordered_vertices_.begin(), ordered_vertices_.begin() + terminals_offsets_.back(),
+						  U.indices.begin(),
+						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
+
+		U.data.assign(term_rows.size(), -1.f);
 	}
 
-	// create vstack(N, B) matrix in csc
-	auto nnz = take_submatrix(nonterminal_vertices_n, ordered_vertices_.begin() + terminals_offsets_.back(),
-							  nb_indptr_csc, nb_rows, nb_data_csc, true);
+	// NB
+	sparse_csc_matrix NB;
+	{
+		// custom mapping
+		{
+			thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
+						 thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
+						 thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(),
+														   ordered_vertices_.begin() + terminals_offsets_.back()));
 
-	d_idxvec nb_indptr_csr, nb_cols;
-	thrust::device_vector<float> nb_data_csr;
+			thrust::copy(
+				thrust::make_counting_iterator<intptr_t>(nonterminal_vertices_n),
+				thrust::make_counting_iterator<intptr_t>(n),
+				thrust::make_permutation_iterator(submatrix_vertex_mapping_.begin(), ordered_vertices_.begin()));
+		}
 
-	// vstack(N, B) to csr
-	csr_csc_switch(nb_indptr_csc.data().get(), nb_rows.data().get(), nb_data_csc.data().get(), nonterminal_vertices_n,
-				   nonterminal_vertices_n + terminal_vertices_n, nnz, nb_indptr_csr, nb_cols, nb_data_csr);
+		// create vstack(N, B) matrix in csc
+		auto nnz =
+			take_submatrix(nonterminal_vertices_n, ordered_vertices_.begin() + terminals_offsets_.back(), NB, true);
+	}
+
+	// NB_t
+	sparse_csr_matrix NB_t;
+	{
+		// vstack(N, B) to csr
+		csr_csc_switch(NB.indptr.data().get(), NB.indices.data().get(), NB.data.data().get(), nonterminal_vertices_n,
+					   nonterminal_vertices_n + terminal_vertices_n, NB.nnz(), NB_t.indptr, NB_t.indices, NB_t.data);
+	}
 
 
-	index_t n_nnz = nb_indptr_csr[nonterminal_vertices_n];
-	index_t b_nnz = nnz - n_nnz;
+	index_t n_nnz = NB_t.indptr[nonterminal_vertices_n];
+	index_t b_nnz = NB.nnz() - n_nnz;
 
 	std::cout << "N nnz " << n_nnz << std::endl;
 	std::cout << "B nnz " << b_nnz << std::endl;
 
 	// offset B part of indptr
-	thrust::transform(nb_indptr_csr.begin() + nonterminal_vertices_n, nb_indptr_csr.end(),
-					  nb_indptr_csr.begin() + nonterminal_vertices_n,
+	thrust::transform(NB_t.indptr.begin() + nonterminal_vertices_n, NB_t.indptr.end(),
+					  NB_t.indptr.begin() + nonterminal_vertices_n,
 					  [n_nnz] __device__(index_t x) { return x - n_nnz; });
 
 	d_idxvec A_indptr, A_indices;
@@ -618,49 +612,48 @@ void solver::solve_nonterminal_part()
 
 	std::cout << "matmul begin" << std::endl;
 
-	matmul(U_indptr_csr.data().get(), U_cols.data().get(), U_data.data().get(), terminals_offsets_.size() - 1,
-		   terminal_vertices_n, U_cols.size(), nb_indptr_csr.data().get() + nonterminal_vertices_n,
-		   nb_cols.data().get() + n_nnz, nb_data_csr.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n,
-		   b_nnz, A_indptr, A_indices, A_data);
+	matmul(U.indptr.data().get(), U.indices.data().get(), U.data.data().get(), terminals_offsets_.size() - 1,
+		   terminal_vertices_n, U.indices.size(), NB_t.indptr.data().get() + nonterminal_vertices_n,
+		   NB_t.indices.data().get() + n_nnz, NB_t.data.data().get() + n_nnz, terminal_vertices_n,
+		   nonterminal_vertices_n, b_nnz, A_indptr, A_indices, A_data);
 
-	nb_indptr_csr[nonterminal_vertices_n] = n_nnz;
+	NB_t.indptr[nonterminal_vertices_n] = n_nnz;
 
 	std::cout << "NB switch begin" << std::endl;
 
-	csr_csc_switch(nb_indptr_csr.data().get(), nb_cols.data().get(), nb_data_csr.data().get(), nonterminal_vertices_n,
-				   nonterminal_vertices_n, n_nnz, nb_indptr_csc, nb_rows, nb_data_csc);
+	csr_csc_switch(NB_t.indptr.data().get(), NB_t.indices.data().get(), NB_t.data.data().get(), nonterminal_vertices_n,
+				   nonterminal_vertices_n, n_nnz, NB.indptr, NB.indices, NB.data);
 
-	nb_indptr_csc.resize(nonterminal_vertices_n + 1);
-	nb_rows.resize(n_nnz);
-	nb_data_csc.resize(n_nnz);
+	// nb_indptr_csc.resize(nonterminal_vertices_n + 1);
+	// nb_rows.resize(n_nnz);
+	// nb_data_csc.resize(n_nnz);
 
-	d_idxvec X_indptr, X_indices;
-	thrust::device_vector<float> X_data;
+	sparse_csr_matrix X;
 
-	solve_system(nb_indptr_csc, nb_rows, nb_data_csc, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
-				 A_indices, A_data, X_indptr, X_indices, X_data);
+	solve_system(NB.indptr, NB.indices, NB.data, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
+				 A_indices, A_data, X.indptr, X.indices, X.data);
 
 
-	nonterm_indptr.resize(U_indptr_csr.size());
-	index_t nonterm_nnz = U_indptr_csr.back() + X_indptr.back();
+	nonterm_indptr.resize(U.indptr.size());
+	index_t nonterm_nnz = U.indptr.back() + X.indptr.back();
 	nonterm_cols.resize(nonterm_nnz);
 	nonterm_data.resize(nonterm_nnz);
 
 	thrust::transform(
-		thrust::make_zip_iterator(U_indptr_csr.begin(), X_indptr.begin()),
-		thrust::make_zip_iterator(U_indptr_csr.end(), X_indptr.end()), nonterm_indptr.begin(),
+		thrust::make_zip_iterator(U.indptr.begin(), X.indptr.begin()),
+		thrust::make_zip_iterator(U.indptr.end(), X.indptr.end()), nonterm_indptr.begin(),
 		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) + thrust::get<1>(x); });
 
 
 	// -U back to U
-	thrust::transform(U_data.begin(), U_data.end(), U_data.begin(), thrust::negate<float>());
+	thrust::transform(U.data.begin(), U.data.end(), U.data.begin(), thrust::negate<float>());
 
 	// nonterminal vertices from 0, ..., n_nt to actual indices
 	{
 		thrust::copy(ordered_vertices_.begin() + terminals_offsets_.back(), ordered_vertices_.end(),
 					 submatrix_vertex_mapping_.begin());
 
-		thrust::transform(X_indices.begin(), X_indices.end(), X_indices.begin(),
+		thrust::transform(X.indices.begin(), X.indices.end(), X.indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 	}
 
@@ -674,9 +667,9 @@ void solver::solve_nonterminal_part()
 		std::cout << "blockxgrid size " << blocksize << "x" << gridsize << std::endl;
 
 		hstack<<<gridsize, blocksize>>>(nonterm_indptr.data().get(), nonterm_cols.data().get(),
-										nonterm_data.data().get(), U_indptr_csr.data().get(), X_indptr.data().get(),
-										term_rows.data().get(), X_indices.data().get(), U_data.data().get(),
-										X_data.data().get(), nonterm_indptr.size() - 1);
+										nonterm_data.data().get(), U.indptr.data().get(), X.indptr.data().get(),
+										term_rows.data().get(), X.indices.data().get(), U.data.data().get(),
+										X.data.data().get(), nonterm_indptr.size() - 1);
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	}

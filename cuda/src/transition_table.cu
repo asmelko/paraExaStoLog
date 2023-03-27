@@ -1,6 +1,7 @@
 #include <thrust/host_vector.h>
 #include <thrust/set_operations.h>
 
+#include "sparse_utils.h"
 #include "transition_table.h"
 
 struct transition_ftor : public thrust::unary_function<index_t, index_t>
@@ -71,26 +72,6 @@ struct flip_ftor : public thrust::unary_function<index_t, index_t>
 	flip_ftor(index_t mask) : mask(mask) {}
 	__host__ __device__ index_t operator()(index_t x) const { return x ^ mask; }
 };
-
-void transition_table::coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& rows, d_idxvec& cols, d_idxvec& indptr)
-{
-	size_t buffersize;
-	CHECK_CUSPARSE(cusparseXcscsort_bufferSizeExt(handle, n, n, (int)cols.size(), rows.data().get(), cols.data().get(),
-												  &buffersize));
-
-	thrust::device_vector<char> buffer(buffersize);
-
-	d_idxvec P(cols.size());
-	CHECK_CUSPARSE(cusparseCreateIdentityPermutation(handle, P.size(), P.data().get()));
-
-	CHECK_CUSPARSE(cusparseXcoosortByColumn(handle, n, n, (int)cols.size(), rows.data().get(), cols.data().get(),
-											P.data().get(), buffer.data().get()));
-
-	indptr.resize(n + 1);
-
-	CHECK_CUSPARSE(cusparseXcoo2csr(handle, cols.data().get(), (int)rows.size(), n, indptr.data().get(),
-									CUSPARSE_INDEX_BASE_ZERO));
-}
 
 void transition_table::construct_table()
 {
