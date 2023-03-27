@@ -453,7 +453,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t sccs_rows, const in
 
 	index_t work_alloc_size = 0;
 	index_t work_size = 0;
-	index_t* __restrict__ work_items = nullptr;
+	index_t* work_items = nullptr;
 
 	{
 		const index_t row_indices_begin = A_indptr[row];
