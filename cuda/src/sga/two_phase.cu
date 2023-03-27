@@ -126,5 +126,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	printf("\truntime [%s] = %f ms.\n", SCC_VARIANT, t.Millisecs());
 	CUDA_SAFE_CALL(cudaFree(d_status));
 	CUDA_SAFE_CALL(cudaFree(d_locks));
+	CUDA_SAFE_CALL(cudaFree(d_colors));
+	CUDA_SAFE_CALL(cudaFree(d_mark));
 	free(h_status);
 }

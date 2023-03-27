@@ -32,6 +32,8 @@ public:
 
 	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
 
+	void break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_matrix& B);
+
 	void create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex);
 
 	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,

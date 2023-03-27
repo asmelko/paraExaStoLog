@@ -288,6 +288,35 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	// print("A indice ", rows);
 	// print("A data   ", data);
 
+	{
+		cusparseMatDescr_t descr_N = 0;
+		size_t pBufferSizeInBytes;
+
+		CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_N));
+		CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_N, CUSPARSE_INDEX_BASE_ZERO));
+		CHECK_CUSPARSE(cusparseSetMatType(descr_N, CUSPARSE_MATRIX_TYPE_GENERAL));
+
+		// step 1: allocate buffer
+		CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
+													  rows.data().get(), &pBufferSizeInBytes));
+		thrust::device_vector<char> buffer(pBufferSizeInBytes);
+
+		// step 2: setup permutation vector P to identity
+		d_idxvec P(nnz);
+		CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
+
+		// step 3: sort CSR format
+		CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
+										rows.data().get(), P.data().get(), buffer.data().get()));
+
+		// step 4: gather sorted csrVal
+		d_datvec sorted_data(data.size());
+		thrust::gather(P.begin(), P.end(), data.begin(), sorted_data.begin());
+		data = std::move(sorted_data);
+
+		CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_N));
+	}
+
 	d_idxvec M_indptr, M_indices;
 	d_datvec M_data;
 
@@ -419,6 +448,65 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_U));
 }
 
+void solver::break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_matrix& B)
+{
+	const auto nnz = NB.data.size();
+	const auto n = NB.indptr.size() - 1;
+	const auto nonterm_n = ordered_vertices_.size() - terminals_offsets_.back();
+
+	std::cout << "nonterm_n " << nonterm_n << std::endl;
+
+	/*print("NB indptr ", NB.indptr);
+	print("NB indice ", NB.indices);
+	print("NB data   ", NB.data);*/
+
+	d_idxvec NB_decomp_indptr(nnz);
+
+	// this decompresses indptr into cols
+	CHECK_CUSPARSE(cusparseXcsr2coo(context_.cusparse_handle, NB.indptr.data().get(), nnz, n,
+									NB_decomp_indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+
+	auto part_point = thrust::stable_partition(
+		thrust::make_zip_iterator(NB_decomp_indptr.begin(), NB.indices.begin(), NB.data.begin()),
+		thrust::make_zip_iterator(NB_decomp_indptr.end(), NB.indices.end(), NB.data.end()),
+		[point = nonterm_n] __device__(thrust::tuple<index_t, index_t, float> x) { return thrust::get<1>(x) < point; });
+
+	auto N_size = thrust::get<0>(part_point.get_iterator_tuple()) - NB_decomp_indptr.begin();
+
+	std::cout << "N_size " << N_size << std::endl;
+
+	d_idxvec B_decomp_indptr(NB_decomp_indptr.begin() + N_size, NB_decomp_indptr.end());
+	B.indices.assign(NB.indices.begin() + N_size, NB.indices.end());
+	B.data.assign(NB.data.begin() + N_size, NB.data.end());
+
+	NB_decomp_indptr.resize(N_size);
+	N.indices = std::move(NB.indices);
+	N.indices.resize(N_size);
+	N.data = std::move(NB.data);
+	N.data.resize(N_size);
+
+	thrust::transform(B.indices.begin(), B.indices.end(), B.indices.begin(),
+					  [point = nonterm_n] __device__(index_t x) { return x - point; });
+
+	// this compresses rows back into indptr
+	N.indptr.resize(nonterm_n + 1);
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, NB_decomp_indptr.data().get(), NB_decomp_indptr.size(),
+									nonterm_n, N.indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+
+	B.indptr.resize(nonterm_n + 1);
+	CHECK_CUSPARSE(cusparseXcoo2csr(context_.cusparse_handle, B_decomp_indptr.data().get(), B_decomp_indptr.size(),
+									nonterm_n, B.indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
+
+
+	//print("N indptr ", N.indptr);
+	//print("N indice ", N.indices);
+	//print("N data   ", N.data);
+
+	//print("B indptr ", B.indptr);
+	//print("B indice ", B.indices);
+	//print("B data   ", B.data);
+}
+
 void solver::solve_nonterminal_part()
 {
 	index_t n = ordered_vertices_.size();
@@ -474,39 +562,25 @@ void solver::solve_nonterminal_part()
 		take_submatrix(nonterminal_vertices_n, ordered_vertices_.begin() + terminals_offsets_.back(), NB, true);
 	}
 
-	// vstack(N, B) to csr
-	sparse_csr_matrix NB_t = csc2csr(context_.cusparse_handle, NB, nonterminal_vertices_n,
-									 nonterminal_vertices_n + terminal_vertices_n, NB.nnz());
+	// extract B
+	sparse_csc_matrix N, B;
+	break_NB(std::move(NB), N, B);
 
+	std::cout << "N nnz " << N.nnz() << std::endl;
+	std::cout << "B nnz " << B.nnz() << std::endl;
 
-	index_t n_nnz = NB_t.indptr[nonterminal_vertices_n];
-	index_t b_nnz = NB.nnz() - n_nnz;
-
-	std::cout << "N nnz " << n_nnz << std::endl;
-	std::cout << "B nnz " << b_nnz << std::endl;
-
-	// offset B part of indptr
-	thrust::transform(NB_t.indptr.begin() + nonterminal_vertices_n, NB_t.indptr.end(),
-					  NB_t.indptr.begin() + nonterminal_vertices_n,
-					  [n_nnz] __device__(index_t x) { return x - n_nnz; });
+	auto B_t = csc2csr(context_.cusparse_handle, B, nonterminal_vertices_n, terminal_vertices_n, B.nnz());
 
 	std::cout << "matmul begin" << std::endl;
 
 	sparse_csr_matrix A =
 		matmul(context_.cusparse_handle, U.indptr.data().get(), U.indices.data().get(), U.data.data().get(),
-			   terminals_offsets_.size() - 1, terminal_vertices_n, U.indices.size(),
-			   NB_t.indptr.data().get() + nonterminal_vertices_n, NB_t.indices.data().get() + n_nnz,
-			   NB_t.data.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n, b_nnz);
-
-	NB_t.indptr[nonterminal_vertices_n] = n_nnz;
-
-	std::cout << "NB switch begin" << std::endl;
-
-	NB = csr2csc(context_.cusparse_handle, NB_t, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz);
+			   terminals_offsets_.size() - 1, terminal_vertices_n, U.indices.size(), B_t.indptr.data().get(),
+			   B_t.indices.data().get(), B_t.data.data().get(), terminal_vertices_n, nonterminal_vertices_n, B.nnz());
 
 	sparse_csr_matrix X;
 
-	solve_system(NB.indptr, NB.indices, NB.data, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A.indptr,
+	solve_system(N.indptr, N.indices, N.data, nonterminal_vertices_n, nonterminal_vertices_n, N.nnz(), A.indptr,
 				 A.indices, A.data, X.indptr, X.indices, X.data);
 
 
