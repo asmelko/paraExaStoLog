@@ -511,7 +511,7 @@ __global__ void cuda_kernel_splu_symbolic_fact(const index_t sccs_rows, const in
 		iteration++;
 
 		index_t work_opp_size = 0;
-		index_t* __restrict__ work_opp_items = work_items + work_size;
+		index_t* work_opp_items = work_items + work_size;
 
 		while (work_opp_size == 0)
 		{
