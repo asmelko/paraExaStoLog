@@ -21,17 +21,6 @@ class solver
 
 	d_idxvec submatrix_vertex_mapping_;
 
-
-	void matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, index_t lhs_rows, index_t lhs_cols,
-				index_t lhs_nnz, index_t* rhs_indptr, index_t* rhs_indices, float* rhs_data, index_t rhs_rows,
-				index_t rhs_cols, index_t rhs_nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
-				thrust::device_vector<float>& out_data);
-
-	void csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
-						index_t out_n, index_t nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
-						thrust::device_vector<float>& out_data);
-
-
 public:
 	d_idxvec term_indptr, term_rows;
 	thrust::device_vector<float> term_data;
@@ -41,20 +30,15 @@ public:
 
 	thrust::device_vector<float> final_state;
 
+	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
+
 	void create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex);
 
 	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 					  int nnz);
 
-	static void transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
-										const float* in_data, index_t in_n, index_t out_n, index_t nnz,
-										d_idxvec& out_indptr, d_idxvec& out_indices,
-										thrust::device_vector<float>& out_data);
-
-	index_t take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
-						   bool mapping_prefilled = false);
-
-	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
+	void take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
+						bool mapping_prefilled = false);
 
 	void solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
 					  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,

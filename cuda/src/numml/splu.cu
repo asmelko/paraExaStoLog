@@ -8,6 +8,7 @@
 #include <thrust/set_operations.h>
 
 #include "../solver.h"
+#include "../sparse_utils.h"
 #include "../utils.h"
 #include "splu.h"
 
@@ -903,9 +904,8 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	d_datvec AsT_data;
 
 	/* Compute the transpose/csc representation of As so that we have easy column access. */
-	solver::transpose_sparse_matrix(context.cusparse_handle, As_indptr.data().get(), As_indices.data().get(),
-									As_data.data().get(), A_rows, A_cols, As_data.size(), AsT_indptr, AsT_indices,
-									AsT_data);
+	transpose_sparse_matrix(context.cusparse_handle, As_indptr.data().get(), As_indices.data().get(),
+							As_data.data().get(), A_rows, A_cols, As_data.size(), AsT_indptr, AsT_indices, AsT_data);
 	// print("A indptr ", A_indptr);
 	// print("A indice ", A_indices);
 	// print("A data   ", A_data);
@@ -939,7 +939,6 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	CHECK_CUDA(cudaFree(U_col_nnz));
 
 	/* Transpose back into CSR format */
-	solver::transpose_sparse_matrix(context.cusparse_handle, AsT_indptr.data().get(), AsT_indices.data().get(),
-									AsT_data.data().get(), A_cols, A_rows, AsT_data.size(), As_indptr, As_indices,
-									As_data);
+	transpose_sparse_matrix(context.cusparse_handle, AsT_indptr.data().get(), AsT_indices.data().get(),
+							AsT_data.data().get(), A_cols, A_rows, AsT_data.size(), As_indptr, As_indices, As_data);
 }

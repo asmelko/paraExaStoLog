@@ -25,22 +25,6 @@ struct equals_ftor : public thrust::unary_function<index_t, bool>
 	__host__ __device__ bool operator()(index_t x) const { return x == value; }
 };
 
-solver::solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s)
-	: context_(context),
-	  initial_state_(std::move(s.state)),
-	  rows_(t.rows),
-	  cols_(t.cols),
-	  indptr_(t.indptr),
-	  ordered_vertices_(std::move(g.reordered_vertices)),
-	  submatrix_vertex_mapping_(ordered_vertices_.size())
-{
-	terminals_offsets_ =
-		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
-
-	nonterminals_offsets_.assign(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
-}
-
-
 __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_t* __restrict__ dst_rows,
 								  float* __restrict__ dst_data, const index_t* __restrict__ src_rows,
 								  const index_t* __restrict__ src_indptr, const index_t* __restrict__ src_perm,
@@ -110,6 +94,21 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	}
 }
 
+solver::solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s)
+	: context_(context),
+	  initial_state_(std::move(s.state)),
+	  rows_(t.rows),
+	  cols_(t.cols),
+	  indptr_(t.indptr),
+	  ordered_vertices_(std::move(g.reordered_vertices)),
+	  submatrix_vertex_mapping_(ordered_vertices_.size())
+{
+	terminals_offsets_ =
+		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+
+	nonterminals_offsets_.assign(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
+}
+
 float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
 						  int nnz)
 {
@@ -141,8 +140,8 @@ float solver::determinant(const d_idxvec& indptr, const d_idxvec& rows, const th
 	return thrust::reduce(diag.begin(), diag.end(), 1, thrust::multiplies<float>());
 }
 
-index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
-							   bool mapping_prefilled)
+void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
+							bool mapping_prefilled)
 {
 	m.indptr.resize(n + 1);
 	m.indptr[0] = 0;
@@ -191,8 +190,6 @@ index_t solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subs
 		thrust::transform(m.indices.begin(), m.indices.end(), m.indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 	}
-
-	return nnz;
 }
 
 void solver::create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex)
@@ -280,115 +277,6 @@ void solver::solve_terminal_part()
 		thrust::transform(minors.begin(), minors.end(), term_data.begin() + terminals_offsets_[terminal_scc_idx - 1],
 						  [sum] __device__(float x) { return x / sum; });
 	}
-}
-
-
-void solver::transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
-									 const float* in_data, index_t in_n, index_t out_n, index_t nnz,
-									 d_idxvec& out_indptr, d_idxvec& out_indices,
-									 thrust::device_vector<float>& out_data)
-{
-	out_indptr.resize(out_n + 1);
-	out_indices.resize(nnz);
-	out_data.resize(nnz);
-
-	size_t buffersize;
-	CHECK_CUSPARSE(cusparseCsr2cscEx2_bufferSize(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices,
-												 out_data.data().get(), out_indptr.data().get(),
-												 out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_NUMERIC,
-												 CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
-
-	thrust::device_vector<char> buffer(buffersize);
-	CHECK_CUSPARSE(cusparseCsr2cscEx2(handle, in_n, out_n, nnz, in_data, in_indptr, in_indices, out_data.data().get(),
-									  out_indptr.data().get(), out_indices.data().get(), CUDA_R_32F,
-									  CUSPARSE_ACTION_NUMERIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1,
-									  buffer.data().get()));
-}
-
-void solver::csr_csc_switch(const index_t* in_indptr, const index_t* in_indices, const float* in_data, index_t in_n,
-							index_t out_n, index_t nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
-							thrust::device_vector<float>& out_data)
-{
-	transpose_sparse_matrix(context_.cusparse_handle, in_indptr, in_indices, in_data, in_n, out_n, nnz, out_indptr,
-							out_indices, out_data);
-}
-
-void solver::matmul(index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data, index_t lhs_rows, index_t lhs_cols,
-					index_t lhs_nnz, index_t* rhs_indptr, index_t* rhs_indices, float* rhs_data, index_t rhs_rows,
-					index_t rhs_cols, index_t rhs_nnz, d_idxvec& out_indptr, d_idxvec& out_indices,
-					thrust::device_vector<float>& out_data)
-{
-	cusparseSpGEMMDescr_t spgemmDesc;
-	CHECK_CUSPARSE(cusparseSpGEMM_createDescr(&spgemmDesc));
-
-	cusparseSpMatDescr_t lhs_descr, rhs_descr, out_descr;
-	CHECK_CUSPARSE(cusparseCreateCsr(&lhs_descr, lhs_rows, lhs_cols, lhs_nnz, lhs_indptr, lhs_indices, lhs_data,
-									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-	CHECK_CUSPARSE(cusparseCreateCsr(&rhs_descr, rhs_rows, rhs_cols, rhs_nnz, rhs_indptr, rhs_indices, rhs_data,
-									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-	CHECK_CUSPARSE(cusparseCreateCsr(&out_descr, lhs_rows, rhs_cols, 0, nullptr, nullptr, nullptr, CUSPARSE_INDEX_32I,
-									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-
-	float alpha = 1.f;
-	float beta = 0.f;
-
-	size_t bufferSize1;
-	// ask bufferSize1 bytes for external memory
-	CHECK_CUSPARSE(cusparseSpGEMM_workEstimation(
-		context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, lhs_descr,
-		rhs_descr, &beta, out_descr, CUDA_R_32F, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc, &bufferSize1, NULL));
-
-	thrust::device_vector<char> buffer1(bufferSize1);
-
-	// inspect the matrices A and B to understand the memory requirement for
-	// the next step
-	CHECK_CUSPARSE(cusparseSpGEMM_workEstimation(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-												 CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, lhs_descr, rhs_descr, &beta,
-												 out_descr, CUDA_R_32F, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc,
-												 &bufferSize1, buffer1.data().get()));
-
-	size_t bufferSize2;
-	// ask bufferSize2 bytes for external memory
-	CHECK_CUSPARSE(cusparseSpGEMM_compute(
-		context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, lhs_descr,
-		rhs_descr, &beta, out_descr, CUDA_R_32F, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc, &bufferSize2, NULL));
-
-	thrust::device_vector<char> buffer2(bufferSize2);
-
-	// compute the intermediate product of A * B
-	CHECK_CUSPARSE(cusparseSpGEMM_compute(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-										  CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, lhs_descr, rhs_descr, &beta,
-										  out_descr, CUDA_R_32F, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc, &bufferSize2,
-										  buffer2.data().get()));
-
-	// get matrix C non-zero entries C_nnz1
-	int64_t out_rows, out_cols, out_nnz;
-	CHECK_CUSPARSE(cusparseSpMatGetSize(out_descr, &out_rows, &out_cols, &out_nnz));
-	// allocate matrix C
-
-	out_indptr.resize(out_rows + 1);
-	out_indices.resize(out_nnz);
-	out_data.resize(out_nnz);
-
-	// NOTE: if 'beta' != 0, the values of C must be update after the allocation
-	//       of dC_values, and before the call of cusparseSpGEMM_copy
-
-	// update matC with the new pointers
-	CHECK_CUSPARSE(
-		cusparseCsrSetPointers(out_descr, out_indptr.data().get(), out_indices.data().get(), out_data.data().get()));
-
-	// if beta != 0, cusparseSpGEMM_copy reuses/updates the values of dC_values
-
-	// copy the final products to the matrix C
-	CHECK_CUSPARSE(cusparseSpGEMM_copy(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-									   CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, lhs_descr, rhs_descr, &beta, out_descr,
-									   CUDA_R_32F, CUSPARSE_SPGEMM_DEFAULT, spgemmDesc));
-
-	// destroy matrix/vector descriptors
-	CHECK_CUSPARSE(cusparseSpGEMM_destroyDescr(spgemmDesc));
-	CHECK_CUSPARSE(cusparseDestroySpMat(lhs_descr));
-	CHECK_CUSPARSE(cusparseDestroySpMat(rhs_descr));
-	CHECK_CUSPARSE(cusparseDestroySpMat(out_descr));
 }
 
 void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
@@ -583,17 +471,12 @@ void solver::solve_nonterminal_part()
 		}
 
 		// create vstack(N, B) matrix in csc
-		auto nnz =
-			take_submatrix(nonterminal_vertices_n, ordered_vertices_.begin() + terminals_offsets_.back(), NB, true);
+		take_submatrix(nonterminal_vertices_n, ordered_vertices_.begin() + terminals_offsets_.back(), NB, true);
 	}
 
-	// NB_t
-	sparse_csr_matrix NB_t;
-	{
-		// vstack(N, B) to csr
-		csr_csc_switch(NB.indptr.data().get(), NB.indices.data().get(), NB.data.data().get(), nonterminal_vertices_n,
-					   nonterminal_vertices_n + terminal_vertices_n, NB.nnz(), NB_t.indptr, NB_t.indices, NB_t.data);
-	}
+	// vstack(N, B) to csr
+	sparse_csr_matrix NB_t = csc2csr(context_.cusparse_handle, NB, nonterminal_vertices_n,
+									 nonterminal_vertices_n + terminal_vertices_n, NB.nnz());
 
 
 	index_t n_nnz = NB_t.indptr[nonterminal_vertices_n];
@@ -607,31 +490,24 @@ void solver::solve_nonterminal_part()
 					  NB_t.indptr.begin() + nonterminal_vertices_n,
 					  [n_nnz] __device__(index_t x) { return x - n_nnz; });
 
-	d_idxvec A_indptr, A_indices;
-	thrust::device_vector<float> A_data;
-
 	std::cout << "matmul begin" << std::endl;
 
-	matmul(U.indptr.data().get(), U.indices.data().get(), U.data.data().get(), terminals_offsets_.size() - 1,
-		   terminal_vertices_n, U.indices.size(), NB_t.indptr.data().get() + nonterminal_vertices_n,
-		   NB_t.indices.data().get() + n_nnz, NB_t.data.data().get() + n_nnz, terminal_vertices_n,
-		   nonterminal_vertices_n, b_nnz, A_indptr, A_indices, A_data);
+	sparse_csr_matrix A =
+		matmul(context_.cusparse_handle, U.indptr.data().get(), U.indices.data().get(), U.data.data().get(),
+			   terminals_offsets_.size() - 1, terminal_vertices_n, U.indices.size(),
+			   NB_t.indptr.data().get() + nonterminal_vertices_n, NB_t.indices.data().get() + n_nnz,
+			   NB_t.data.data().get() + n_nnz, terminal_vertices_n, nonterminal_vertices_n, b_nnz);
 
 	NB_t.indptr[nonterminal_vertices_n] = n_nnz;
 
 	std::cout << "NB switch begin" << std::endl;
 
-	csr_csc_switch(NB_t.indptr.data().get(), NB_t.indices.data().get(), NB_t.data.data().get(), nonterminal_vertices_n,
-				   nonterminal_vertices_n, n_nnz, NB.indptr, NB.indices, NB.data);
-
-	// nb_indptr_csc.resize(nonterminal_vertices_n + 1);
-	// nb_rows.resize(n_nnz);
-	// nb_data_csc.resize(n_nnz);
+	NB = csr2csc(context_.cusparse_handle, NB_t, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz);
 
 	sparse_csr_matrix X;
 
-	solve_system(NB.indptr, NB.indices, NB.data, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A_indptr,
-				 A_indices, A_data, X.indptr, X.indices, X.data);
+	solve_system(NB.indptr, NB.indices, NB.data, nonterminal_vertices_n, nonterminal_vertices_n, n_nnz, A.indptr,
+				 A.indices, A.data, X.indptr, X.indices, X.data);
 
 
 	nonterm_indptr.resize(U.indptr.size());
@@ -678,73 +554,12 @@ void solver::solve_nonterminal_part()
 void solver::compute_final_states()
 {
 	std::cout << "Rx begin" << std::endl;
-	thrust::device_vector<float> y(terminals_offsets_.size() - 1);
-	{
-		float alpha = 1.0f;
-		float beta = 0.0f;
-
-		cusparseSpMatDescr_t matA;
-		cusparseDnVecDescr_t vecX, vecY;
-		size_t bufferSize = 0;
-
-		// Create sparse matrix A in CSR format
-		CHECK_CUSPARSE(cusparseCreateCsr(&matA, terminals_offsets_.size() - 1, ordered_vertices_.size(),
-										 nonterm_data.size(), nonterm_indptr.data().get(), nonterm_cols.data().get(),
-										 nonterm_data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-										 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-		// Create dense vector X
-		CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, ordered_vertices_.size(), initial_state_.data().get(), CUDA_R_32F));
-		// Create dense vector y
-		CHECK_CUSPARSE(cusparseCreateDnVec(&vecY, terminals_offsets_.size() - 1, y.data().get(), CUDA_R_32F));
-		// allocate an external buffer if needed
-		CHECK_CUSPARSE(cusparseSpMV_bufferSize(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
-											   vecX, &beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
-		thrust::device_vector<char> buffer(bufferSize);
-
-		// execute SpMV
-		CHECK_CUSPARSE(cusparseSpMV(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecX,
-									&beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, buffer.data().get()));
-
-		// destroy matrix/vector descriptors
-		CHECK_CUSPARSE(cusparseDestroySpMat(matA));
-		CHECK_CUSPARSE(cusparseDestroyDnVec(vecX));
-		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
-	}
+	auto y = mvmul(context_.cusparse_handle, nonterm_indptr, nonterm_cols, nonterm_data, cs_kind::CSR,
+				   terminals_offsets_.size() - 1, ordered_vertices_.size(), initial_state_);
 
 	std::cout << "Ly begin" << std::endl;
-
-	final_state.resize(ordered_vertices_.size());
-	{
-		float alpha = 1.0f;
-		float beta = 0.0f;
-
-		cusparseSpMatDescr_t matA;
-		cusparseDnVecDescr_t vecX, vecY;
-		size_t bufferSize = 0;
-
-		// Create sparse matrix A in CSC format
-		CHECK_CUSPARSE(cusparseCreateCsc(&matA, ordered_vertices_.size(), terminals_offsets_.size() - 1,
-										 term_data.size(), term_indptr.data().get(), term_rows.data().get(),
-										 term_data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-										 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
-		// Create dense vector y
-		CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, terminals_offsets_.size() - 1, y.data().get(), CUDA_R_32F));
-		// Create dense vector final
-		CHECK_CUSPARSE(cusparseCreateDnVec(&vecY, ordered_vertices_.size(), final_state.data().get(), CUDA_R_32F));
-		// allocate an external buffer if needed
-		CHECK_CUSPARSE(cusparseSpMV_bufferSize(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA,
-											   vecX, &beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
-		thrust::device_vector<char> buffer(bufferSize);
-
-		// execute SpMV
-		CHECK_CUSPARSE(cusparseSpMV(context_.cusparse_handle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecX,
-									&beta, vecY, CUDA_R_32F, CUSPARSE_SPMV_ALG_DEFAULT, buffer.data().get()));
-
-		// destroy matrix/vector descriptors
-		CHECK_CUSPARSE(cusparseDestroySpMat(matA));
-		CHECK_CUSPARSE(cusparseDestroyDnVec(vecX));
-		CHECK_CUSPARSE(cusparseDestroyDnVec(vecY));
-	}
+	final_state = mvmul(context_.cusparse_handle, term_indptr, term_rows, term_data, cs_kind::CSC,
+						ordered_vertices_.size(), terminals_offsets_.size() - 1, y);
 }
 
 void solver::solve()
