@@ -1,4 +1,5 @@
 #include <cooperative_groups.h>
+#include <cusolverSp_LOWLEVEL_PREVIEW.h>
 #include <device_launch_parameters.h>
 
 #include <cooperative_groups/reduce.h>
@@ -177,9 +178,9 @@ __global__ void cuda_kernel_splu_symbolic_fact_triv_nnz(const index_t sccs_rows,
 
 __global__ void cuda_kernel_splu_symbolic_fact_triv_populate(
 	const index_t sccs_rows, const index_t scc_count, const index_t* __restrict__ scc_sizes,
-	const index_t* __restrict__ scc_offsets, const index_t* __restrict__ A_indices, const real_t* __restrict__ A_data,
-	const index_t* __restrict__ A_indptr, index_t* __restrict__ As_indptr, index_t* __restrict__ As_indices,
-	real_t* __restrict__ As_data)
+	const index_t* __restrict__ scc_offsets, const index_t* __restrict__ A_indptr,
+	const index_t* __restrict__ A_indices, const real_t* __restrict__ A_data, index_t* __restrict__ As_indptr,
+	index_t* __restrict__ As_indices, real_t* __restrict__ As_data)
 {
 	index_t row = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -238,6 +239,86 @@ __global__ void cuda_kernel_splu_symbolic_fact_triv_populate(
 	}
 }
 
+void host_lu(cusolverSpHandle_t handle, const thrust::host_vector<index_t>& indptr,
+			 const thrust::host_vector<index_t>& rows, const thrust::host_vector<float>& data,
+			 thrust::host_vector<index_t>& M_indptr, thrust::host_vector<index_t>& M_indices,
+			 thrust::host_vector<float>& M_data)
+{
+	auto n = indptr.size() - 1;
+	auto nnz = rows.size();
+
+	csrluInfoHost_t info;
+	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
+
+	cusparseMatDescr_t descr, descr_L, descr_U;
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr, CUSPARSE_DIAG_TYPE_NON_UNIT));
+
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_L));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_L, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_L, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_L, CUSPARSE_FILL_MODE_LOWER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_L, CUSPARSE_DIAG_TYPE_UNIT));
+
+	CHECK_CUSPARSE(cusparseCreateMatDescr(&descr_U));
+	CHECK_CUSPARSE(cusparseSetMatIndexBase(descr_U, CUSPARSE_INDEX_BASE_ZERO));
+	CHECK_CUSPARSE(cusparseSetMatType(descr_U, CUSPARSE_MATRIX_TYPE_GENERAL));
+	CHECK_CUSPARSE(cusparseSetMatFillMode(descr_U, CUSPARSE_FILL_MODE_UPPER));
+	CHECK_CUSPARSE(cusparseSetMatDiagType(descr_U, CUSPARSE_DIAG_TYPE_NON_UNIT));
+
+	CHECK_CUSOLVER(cusolverSpXcsrluAnalysisHost(handle, n, nnz, descr, indptr.data(), rows.data(), info));
+
+	size_t internal_data, workspace;
+	CHECK_CUSOLVER(cusolverSpScsrluBufferInfoHost(handle, n, nnz, descr, data.data(), indptr.data(), rows.data(), info,
+												  &internal_data, &workspace));
+
+	std::vector<char> buffer(workspace);
+
+	CHECK_CUSOLVER(cusolverSpScsrluFactorHost(handle, n, nnz, descr, data.data(), indptr.data(), rows.data(), info,
+											  0.1f, buffer.data()));
+
+	int nnz_l, nnz_u;
+	CHECK_CUSOLVER(cusolverSpXcsrluNnzHost(handle, &nnz_l, &nnz_u, info));
+
+	thrust::host_vector<index_t> P(n), Q(n), L_indptr(n + 1), U_indptr(n + 1), L_cols(nnz_l), U_cols(nnz_u);
+	thrust::host_vector<float> L_data(nnz_l), U_data(nnz_u);
+
+	CHECK_CUSOLVER(cusolverSpScsrluExtractHost(handle, P.data(), Q.data(), descr_L, L_data.data(), L_indptr.data(),
+											   L_cols.data(), descr_U, U_data.data(), U_indptr.data(), U_cols.data(),
+											   info, buffer.data()));
+
+	M_indptr.resize(n + 1);
+	thrust::for_each_n(thrust::seq, thrust::make_counting_iterator<index_t>(0), n + 1,
+					   [&](index_t i) { M_indptr[i] = L_indptr[i] + U_indptr[i]; });
+
+	M_indices.resize(M_indptr.back());
+	M_data.resize(M_indptr.back());
+
+	thrust::for_each_n(thrust::seq, thrust::make_counting_iterator<index_t>(0), n + 1, [&](index_t i) {
+		auto begin = M_indptr[i];
+
+		auto L_begin = L_indptr[i];
+		auto U_begin = U_indptr[i];
+
+		auto L_end = L_indptr[i + 1];
+		auto U_end = U_indptr[i + 1];
+
+		thrust::copy(thrust::seq, L_cols.begin() + L_begin, L_cols.begin() + L_end, M_indptr.begin() + begin);
+		thrust::copy(thrust::seq, U_cols.begin() + U_begin, U_cols.begin() + U_end,
+					 M_indptr.begin() + begin + (L_end - L_begin));
+
+		thrust::copy(thrust::seq, L_data.begin() + L_begin, L_data.begin() + L_end, M_data.begin() + begin);
+		thrust::copy(thrust::seq, U_data.begin() + U_begin, U_data.begin() + U_end,
+					 M_data.begin() + begin + (L_end - L_begin));
+	});
+
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
+	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
+	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
+}
 
 
 index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_sizes, d_idxvec& partitioned_scc_offsets)
@@ -279,9 +360,69 @@ index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_si
 	return small_sccs;
 }
 
-void lu_big_nnz_and_populate(const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
+struct lu_t
+{
+	thrust::host_vector<index_t> M_indptr;
+	thrust::host_vector<index_t> M_indices;
+	thrust::host_vector<float> M_data;
+};
+
+std::vector<lu_t> lu_big_nnz(cusolverSpHandle_t handle, index_t big_scc_start, const d_idxvec& scc_sizes,
+							 const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
 							 const d_datvec& A_data, d_idxvec& As_indptr)
-{}
+{
+	thrust::host_vector<index_t> indptr = A_indptr;
+	thrust::host_vector<index_t> indices = A_indices;
+	thrust::host_vector<real_t> data = A_data;
+
+	std::vector<lu_t> lu_vec(scc_sizes.size() - big_scc_start);
+
+	for (size_t i = big_scc_start; i < scc_sizes.size(); i++)
+	{
+		const auto scc_offset = scc_offsets[i];
+		const auto scc_size = scc_offsets[i];
+
+		// create indptr
+		thrust::host_vector<index_t> scc_indptr(indptr.begin() + scc_offset,
+												indptr.begin() + scc_offset + scc_size + 1);
+		const auto base = scc_indptr[0];
+		thrust::transform(thrust::seq, scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+						  [base](index_t x) { return x - base; });
+
+		const auto scc_nnz = scc_indptr.back();
+
+		thrust::host_vector<index_t> scc_indices(indices.begin() + base, indices.begin() + base + scc_nnz);
+		thrust::transform(thrust::seq, scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+						  [scc_offset](index_t x) { return x - scc_offset; });
+
+		thrust::host_vector<real_t> scc_data(data.begin() + base, data.begin() + base + scc_nnz);
+
+		lu_t lu;
+		host_lu(handle, indptr, indices, data, lu.M_indptr, lu.M_indices, lu.M_data);
+
+		thrust::copy(As_indptr.begin() + scc_offset + 1, As_indptr.begin() + scc_offset + 1 + scc_size,
+					 lu.M_indptr.begin() + 1);
+
+		lu_vec.emplace_back(std::move(lu));
+	}
+
+	return lu_vec;
+}
+
+void lu_big_populate(cusolverSpHandle_t handle, index_t big_scc_start, const d_idxvec& scc_offsets,
+					 const d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data, const std::vector<lu_t>& lus)
+{
+	for (size_t i = 0; i < lus.size(); i++)
+	{
+		const auto scc_offset = scc_offsets[big_scc_start + i];
+		const auto scc_size = scc_offsets[big_scc_start + i];
+
+		const auto begin = As_indptr[scc_offset];
+
+		thrust::copy(lus[i].M_indices.begin(), lus[i].M_indices.end(), As_indices.begin() + begin);
+		thrust::copy(lus[i].M_data.begin(), lus[i].M_data.end(), As_data.begin() + begin);
+	}
+}
 
 /**
  * Sparse LU Factorization, using a left-looking algorithm on the columns of A.  Based on
@@ -321,9 +462,8 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	}
 
 	// without waiting we compute nnz of non triv
-	{
-
-	}
+	auto lus = lu_big_nnz(context.cusolver_handle, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
+						  A_indices, A_data, As_indptr);
 
 	// we allocate required space
 	{
@@ -339,12 +479,14 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 		cuda_kernel_splu_symbolic_fact_triv_populate<<<(small_scc_rows + threads_per_block - 1) / threads_per_block,
 													   threads_per_block>>>(
 			small_scc_rows, small_sccs_size, part_scc_sizes.data().get(), part_scc_offsets.data().get(),
-			A_indices.data().get(), A_indptr.data().get(), As_indptr.data().get(), As_indices.data().get(),
-			As_data.data().get());
+			A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), As_indptr.data().get(),
+			As_indices.data().get(), As_data.data().get());
 
 		std::cout << "splu triv populate done" << std::endl;
 	}
 
 	// we populate non triv
-	{}
+	lu_big_populate(context.cusolver_handle, small_sccs_size, part_scc_offsets, As_indptr, As_indices, As_data, lus);
+
+	CHECK_CUDA(cudaDeviceSynchronize());
 }
