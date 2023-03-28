@@ -31,17 +31,6 @@ void cusolver_check(cusolverStatus_t e, const char* file, int line)
 
 cu_context::cu_context()
 {
-	static bool heap_init = false;
-
-	if (!heap_init)
-	{
-		size_t size;
-		CHECK_CUDA(cudaDeviceGetLimit(&size, cudaLimitMallocHeapSize));
-		std::cout << "cudaLimitMallocHeapSize " << size << std::endl;
-		size = 1UL << 30;
-		CHECK_CUDA(cudaDeviceSetLimit(cudaLimitMallocHeapSize, size));
-		heap_init = true;
-	}
 	CHECK_CUSPARSE(cusparseCreate(&cusparse_handle));
 	CHECK_CUSOLVER(cusolverSpCreate(&cusolver_handle));
 }

@@ -299,15 +299,17 @@ void solver::solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device
 		// step 1: allocate buffer
 		CHECK_CUSPARSE(cusparseXcsrsort_bufferSizeExt(context_.cusparse_handle, n, n, nnz, indptr.data().get(),
 													  rows.data().get(), &pBufferSizeInBytes));
-		thrust::device_vector<char> buffer(pBufferSizeInBytes);
 
 		// step 2: setup permutation vector P to identity
 		d_idxvec P(nnz);
 		CHECK_CUSPARSE(cusparseCreateIdentityPermutation(context_.cusparse_handle, nnz, P.data().get()));
 
-		// step 3: sort CSR format
-		CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
-										rows.data().get(), P.data().get(), buffer.data().get()));
+		{
+			// step 3: sort CSR format
+			thrust::device_vector<char> buffer(pBufferSizeInBytes);
+			CHECK_CUSPARSE(cusparseXcsrsort(context_.cusparse_handle, n, n, nnz, descr_N, indptr.data().get(),
+											rows.data().get(), P.data().get(), buffer.data().get()));
+		}
 
 		// step 4: gather sorted csrVal
 		d_datvec sorted_data(data.size());
@@ -498,13 +500,13 @@ void solver::break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_m
 									nonterm_n, B.indptr.data().get(), CUSPARSE_INDEX_BASE_ZERO));
 
 
-	//print("N indptr ", N.indptr);
-	//print("N indice ", N.indices);
-	//print("N data   ", N.data);
+	// print("N indptr ", N.indptr);
+	// print("N indice ", N.indices);
+	// print("N data   ", N.data);
 
-	//print("B indptr ", B.indptr);
-	//print("B indice ", B.indices);
-	//print("B data   ", B.data);
+	// print("B indptr ", B.indptr);
+	// print("B indice ", B.indices);
+	// print("B data   ", B.data);
 }
 
 void solver::solve_nonterminal_part()

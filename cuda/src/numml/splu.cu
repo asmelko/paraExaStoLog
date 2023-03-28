@@ -8,6 +8,7 @@
 #include <thrust/execution_policy.h>
 #include <thrust/partition.h>
 #include <thrust/set_operations.h>
+#include <thrust/unique.h>
 
 #include "../solver.h"
 #include "../sparse_utils.h"
@@ -239,13 +240,50 @@ __global__ void cuda_kernel_splu_symbolic_fact_triv_populate(
 	}
 }
 
-void host_lu(cusolverSpHandle_t handle, const thrust::host_vector<index_t>& indptr,
-			 const thrust::host_vector<index_t>& rows, const thrust::host_vector<float>& data,
-			 thrust::host_vector<index_t>& M_indptr, thrust::host_vector<index_t>& M_indices,
-			 thrust::host_vector<float>& M_data)
+void host_lu(cusolverSpHandle_t handle, thrust::host_vector<index_t>& indptr, thrust::host_vector<index_t>& rows,
+			 const thrust::host_vector<float>& data, thrust::host_vector<index_t>& M_indptr,
+			 thrust::host_vector<index_t>& M_indices, thrust::host_vector<float>& M_data)
 {
-	auto n = indptr.size() - 1;
+	// print("scc indptr ", d_idxvec(indptr));
+	// print("scc indice ", d_idxvec(rows));
+	// print("scc data   ", d_datvec(data));
+
+	auto orig_n = indptr.size() - 1;
 	auto nnz = rows.size();
+
+	thrust::host_vector<index_t> big_rows(nnz);
+	thrust::host_vector<index_t> map;
+
+	// modify
+	{
+		auto end =
+			thrust::copy_if(rows.begin(), rows.end(), big_rows.begin(), [orig_n](index_t x) { return x >= orig_n; });
+
+		big_rows.resize(end - big_rows.begin());
+
+		if (big_rows.size())
+		{
+			thrust::sort(big_rows.begin(), big_rows.end());
+			end = thrust::unique(big_rows.begin(), big_rows.end());
+
+			big_rows.resize(end - big_rows.begin());
+
+			map.resize(big_rows.back());
+
+			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
+							   [&](index_t i) { map[big_rows[i]] = orig_n + i; });
+
+			thrust::transform_if(
+				rows.begin(), rows.end(), rows.begin(), [&](index_t x) { return map[x]; },
+				[orig_n](index_t x) { return x >= orig_n; });
+
+			indptr.reserve(indptr.size() + big_rows.size());
+			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
+							   [&](index_t i) { indptr.push_back(nnz); });
+		}
+	}
+
+	auto n = indptr.size() - 1;
 
 	csrluInfoHost_t info;
 	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
@@ -289,14 +327,14 @@ void host_lu(cusolverSpHandle_t handle, const thrust::host_vector<index_t>& indp
 											   L_cols.data(), descr_U, U_data.data(), U_indptr.data(), U_cols.data(),
 											   info, buffer.data()));
 
-	M_indptr.resize(n + 1);
-	thrust::for_each_n(thrust::seq, thrust::make_counting_iterator<index_t>(0), n + 1,
+	M_indptr.resize(orig_n + 1);
+	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), orig_n + 1,
 					   [&](index_t i) { M_indptr[i] = L_indptr[i] + U_indptr[i]; });
 
 	M_indices.resize(M_indptr.back());
 	M_data.resize(M_indptr.back());
 
-	thrust::for_each_n(thrust::seq, thrust::make_counting_iterator<index_t>(0), n + 1, [&](index_t i) {
+	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), orig_n, [&](index_t i) {
 		auto begin = M_indptr[i];
 
 		auto L_begin = L_indptr[i];
@@ -305,19 +343,44 @@ void host_lu(cusolverSpHandle_t handle, const thrust::host_vector<index_t>& indp
 		auto L_end = L_indptr[i + 1];
 		auto U_end = U_indptr[i + 1];
 
-		thrust::copy(thrust::seq, L_cols.begin() + L_begin, L_cols.begin() + L_end, M_indptr.begin() + begin);
-		thrust::copy(thrust::seq, U_cols.begin() + U_begin, U_cols.begin() + U_end,
-					 M_indptr.begin() + begin + (L_end - L_begin));
+		thrust::copy(L_cols.begin() + L_begin, L_cols.begin() + L_end, M_indices.begin() + begin);
+		thrust::copy(U_cols.begin() + U_begin, U_cols.begin() + U_end, M_indices.begin() + begin + (L_end - L_begin));
 
-		thrust::copy(thrust::seq, L_data.begin() + L_begin, L_data.begin() + L_end, M_data.begin() + begin);
-		thrust::copy(thrust::seq, U_data.begin() + U_begin, U_data.begin() + U_end,
-					 M_data.begin() + begin + (L_end - L_begin));
+		thrust::copy(L_data.begin() + L_begin, L_data.begin() + L_end, M_data.begin() + begin);
+		thrust::copy(U_data.begin() + U_begin, U_data.begin() + U_end, M_data.begin() + begin + (L_end - L_begin));
 	});
+
+	// turn back
+	if (big_rows.size())
+	{
+		thrust::copy(big_rows.begin(), big_rows.end(), map.begin() + orig_n);
+
+		thrust::transform_if(
+			M_indices.begin(), M_indices.end(), M_indices.begin(), [&](index_t x) { return map[x]; },
+			[orig_n](index_t x) { return x >= orig_n; });
+	}
 
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
 	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
+
+	// print("scc indptr ", d_idxvec(indptr));
+	// print("scc indice ", d_idxvec(rows));
+	// print("scc data   ", d_datvec(data));
+
+
+	// print("L indptr ", d_idxvec(L_indptr));
+	// print("L indice ", d_idxvec(L_cols));
+	// print("L data   ", d_datvec(L_data));
+
+	// print("U indptr ", d_idxvec(U_indptr));
+	// print("U indice ", d_idxvec(U_cols));
+	// print("U data   ", d_datvec(U_data));
+
+	// print("M indptr ", d_idxvec(M_indptr));
+	// print("M indice ", d_idxvec(M_indices));
+	// print("M data   ", d_datvec(M_data));
 }
 
 
@@ -375,36 +438,44 @@ std::vector<lu_t> lu_big_nnz(cusolverSpHandle_t handle, index_t big_scc_start, c
 	thrust::host_vector<index_t> indices = A_indices;
 	thrust::host_vector<real_t> data = A_data;
 
-	std::vector<lu_t> lu_vec(scc_sizes.size() - big_scc_start);
+	std::vector<lu_t> lu_vec;
+	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	for (size_t i = big_scc_start; i < scc_sizes.size(); i++)
-	{
-		const auto scc_offset = scc_offsets[i];
-		const auto scc_size = scc_offsets[i];
+	thrust::for_each(thrust::host, thrust::make_counting_iterator<index_t>(big_scc_start),
+					 thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
+						 const index_t scc_offset = scc_offsets[i];
+						 const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
 
-		// create indptr
-		thrust::host_vector<index_t> scc_indptr(indptr.begin() + scc_offset,
-												indptr.begin() + scc_offset + scc_size + 1);
-		const auto base = scc_indptr[0];
-		thrust::transform(thrust::seq, scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
-						  [base](index_t x) { return x - base; });
+						 // create indptr
+						 thrust::host_vector<index_t> scc_indptr(indptr.begin() + scc_offset,
+																 indptr.begin() + scc_offset + scc_size + 1);
+						 const index_t base = scc_indptr[0];
+						 thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+										   [base](index_t x) { return x - base; });
 
-		const auto scc_nnz = scc_indptr.back();
+						 const index_t scc_nnz = scc_indptr.back();
 
-		thrust::host_vector<index_t> scc_indices(indices.begin() + base, indices.begin() + base + scc_nnz);
-		thrust::transform(thrust::seq, scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
-						  [scc_offset](index_t x) { return x - scc_offset; });
+						 thrust::host_vector<index_t> scc_indices(indices.begin() + base,
+																  indices.begin() + base + scc_nnz);
+						 thrust::transform(thrust::seq, scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+										   [scc_offset](index_t x) { return x - scc_offset; });
 
-		thrust::host_vector<real_t> scc_data(data.begin() + base, data.begin() + base + scc_nnz);
+						 thrust::host_vector<real_t> scc_data(data.begin() + base, data.begin() + base + scc_nnz);
 
-		lu_t lu;
-		host_lu(handle, indptr, indices, data, lu.M_indptr, lu.M_indices, lu.M_data);
+						 lu_t lu;
+						 host_lu(handle, scc_indptr, scc_indices, scc_data, lu.M_indptr, lu.M_indices, lu.M_data);
 
-		thrust::copy(As_indptr.begin() + scc_offset + 1, As_indptr.begin() + scc_offset + 1 + scc_size,
-					 lu.M_indptr.begin() + 1);
+						 thrust::transform(lu.M_indices.begin(), lu.M_indices.end(), lu.M_indices.begin(),
+										   [scc_offset](index_t x) { return x + scc_offset; });
 
-		lu_vec.emplace_back(std::move(lu));
-	}
+						 thrust::host_vector<index_t> sizes(scc_size);
+						 thrust::adjacent_difference(lu.M_indptr.begin() + 1, lu.M_indptr.end(), sizes.begin());
+
+						 CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(),
+											   sizeof(index_t) * scc_size, cudaMemcpyHostToDevice));
+
+						 lu_vec.emplace_back(std::move(lu));
+					 });
 
 	return lu_vec;
 }
@@ -414,13 +485,16 @@ void lu_big_populate(cusolverSpHandle_t handle, index_t big_scc_start, const d_i
 {
 	for (size_t i = 0; i < lus.size(); i++)
 	{
-		const auto scc_offset = scc_offsets[big_scc_start + i];
-		const auto scc_size = scc_offsets[big_scc_start + i];
+		const index_t scc_offset = scc_offsets[big_scc_start + i];
+		const index_t scc_size = scc_offsets[big_scc_start + i];
 
-		const auto begin = As_indptr[scc_offset];
+		const index_t begin = As_indptr[scc_offset];
 
-		thrust::copy(lus[i].M_indices.begin(), lus[i].M_indices.end(), As_indices.begin() + begin);
-		thrust::copy(lus[i].M_data.begin(), lus[i].M_data.end(), As_data.begin() + begin);
+		CHECK_CUDA(cudaMemcpy(As_indices.data().get() + begin, lus[i].M_indices.data(),
+							  sizeof(index_t) * lus[i].M_indices.size(), cudaMemcpyHostToDevice));
+
+		CHECK_CUDA(cudaMemcpy(As_data.data().get() + begin, lus[i].M_data.data(),
+							  sizeof(index_t) * lus[i].M_data.size(), cudaMemcpyHostToDevice));
 	}
 }
 
@@ -465,6 +539,8 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	auto lus = lu_big_nnz(context.cusolver_handle, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
 						  A_indices, A_data, As_indptr);
 
+	std::cout << "splu big nnz done" << std::endl;
+
 	// we allocate required space
 	{
 		thrust::inclusive_scan(As_indptr.begin(), As_indptr.end(), As_indptr.begin());
@@ -473,6 +549,8 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 		As_indices.resize(As_nnz);
 		As_data.resize(As_nnz);
 	}
+
+	std::cout << "splu nnz allocated" << std::endl;
 
 	// we populate  triv
 	{
@@ -488,5 +566,11 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	// we populate non triv
 	lu_big_populate(context.cusolver_handle, small_sccs_size, part_scc_offsets, As_indptr, As_indices, As_data, lus);
 
+	std::cout << "splu big populate done" << std::endl;
+
 	CHECK_CUDA(cudaDeviceSynchronize());
+
+	// print("M indptr ", As_indptr);
+	// print("M indice ", As_indices);
+	// print("M data   ", As_data);
 }
