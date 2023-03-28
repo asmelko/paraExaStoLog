@@ -4,7 +4,7 @@
 int main(int argc, char** argv)
 {
 	model_builder builder;
-	auto model = builder.construct_model("data/EMT_cohen_ModNet.bnet");
+	auto model = builder.construct_model("data/zanudo_expanded.bnet");
 
 	cu_context context;
 
@@ -16,10 +16,8 @@ int main(int argc, char** argv)
 
 	g.find_terminals();
 
-	initial_state st(
-		model.nodes,
-		{ "ECMicroenv", "DNAdamage", "Metastasis", "Migration", "Invasion", "EMT", "Apoptosis", "Notch_pthw", "p53" },
-		{ true, true, false, false, false, false, false, true, false }, 1.f);
+	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
+					 { false, true, false, false, false }, 1.f);
 
 	solver s(context, table, std::move(g), std::move(st));
 
