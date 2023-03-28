@@ -114,7 +114,7 @@ model_t model_builder::construct_model(const std::string& file)
 	std::getline(f, line);
 
 	// skip the first line
-	if (line == "targets, factors")
+	if (line.rfind("targets", 0) == 0)
 		std::getline(f, line);
 
 	boolstuff::BoolExprParser parser;
