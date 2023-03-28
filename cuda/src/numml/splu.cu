@@ -57,8 +57,8 @@ __device__ index_t merge_size(const index_t this_row, const index_t* __restrict_
 }
 
 __device__ void merge(const index_t this_row, const index_t* __restrict__ this_row_indices,
-					  const real_t* __restrict__ this_data, const index_t this_row_size, const index_t merging_row,
-					  const index_t* __restrict__ merging_row_indices, const real_t* __restrict__ merging_data,
+					  const real_t* __restrict__ this_row_data, const index_t this_row_size, const index_t merging_row,
+					  const index_t* __restrict__ merging_row_indices, const real_t* __restrict__ merging_row_data,
 					  const index_t merging_row_size, index_t* __restrict__ out_indices, real_t* __restrict__ out_data)
 {
 	index_t this_idx = 0;
@@ -66,14 +66,13 @@ __device__ void merge(const index_t this_row, const index_t* __restrict__ this_r
 
 	index_t out_idx = 0;
 
-	real_t divisor = this_data[0] / merging_data[0];
+	real_t divisor = this_row_data[0] / merging_row_data[0];
 	out_data[0] = divisor;
-	out_indices[0] = this_row;
+	out_indices[0] = merging_row;
 
 	out_idx++;
 	this_idx++;
 	merging_idx++;
-
 
 	while (merging_idx < merging_row_size && this_idx < this_row_size)
 	{
@@ -83,7 +82,7 @@ __device__ void merge(const index_t this_row, const index_t* __restrict__ this_r
 		if (this_col == merging_col)
 		{
 			out_indices[out_idx] = this_col;
-			out_data[out_idx] = this_data[this_idx] - divisor * merging_data[merging_idx];
+			out_data[out_idx] = this_row_data[this_idx] - divisor * merging_row_data[merging_idx];
 			this_idx++;
 			merging_idx++;
 			out_idx++;
@@ -91,30 +90,30 @@ __device__ void merge(const index_t this_row, const index_t* __restrict__ this_r
 		else if (this_col < merging_col)
 		{
 			out_indices[out_idx] = this_col;
-			out_data[out_idx] = this_data[this_idx];
+			out_data[out_idx] = this_row_data[this_idx];
 			this_idx++;
 			out_idx++;
 		}
 		else
 		{
 			out_indices[out_idx] = merging_col;
-			out_data[out_idx] = merging_data[merging_idx];
+			out_data[out_idx] = -divisor * merging_row_data[merging_idx];
 			merging_idx++;
 			out_idx++;
 		}
 	}
 
-	if (merging_idx < merging_row_size)
+	while (merging_idx < merging_row_size)
 	{
 		out_indices[out_idx] = merging_row_indices[merging_idx];
-		out_data[out_idx] = merging_data[merging_idx];
+		out_data[out_idx] = -divisor * merging_row_data[merging_idx];
 		merging_idx++;
 		out_idx++;
 	}
-	else
+	while (this_idx < this_row_size)
 	{
-		out_indices[out_idx] = this_row_indices[merging_idx];
-		out_data[out_idx] = this_data[this_idx];
+		out_indices[out_idx] = this_row_indices[this_idx];
+		out_data[out_idx] = this_row_data[this_idx];
 		this_idx++;
 		out_idx++;
 	}
@@ -200,6 +199,12 @@ __global__ void cuda_kernel_splu_symbolic_fact_triv_populate(
 	row = scc_offset + in_scc_offset;
 
 	if (scc_size > big_scc_threshold)
+	{
+		printf("problem\n");
+		return;
+	}
+
+	if (in_scc_offset >= scc_size)
 	{
 		printf("problem\n");
 		return;
@@ -512,13 +517,13 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	const index_t small_scc_rows = small_sccs_size == 0 ? 0 : part_scc_sizes[small_sccs_size - 1];
 	const index_t big_scc_rows = big_sccs_size == 0 ? 0 : part_scc_sizes.back();
 
-	std::cout << "splu big scc rows " << big_scc_rows << std::endl;
-	std::cout << "splu big sccs " << big_sccs_size << std::endl;
+	//std::cout << "splu big scc rows " << big_scc_rows << std::endl;
+	//std::cout << "splu big sccs " << big_sccs_size << std::endl;
 
-	std::cout << "splu small scc rows " << small_scc_rows << std::endl;
-	std::cout << "splu small sccs " << small_sccs_size << std::endl;
+	//std::cout << "splu small scc rows " << small_scc_rows << std::endl;
+	//std::cout << "splu small sccs " << small_sccs_size << std::endl;
 
-	std::cout << "splu rows " << A_indptr.size() - 1 << std::endl;
+	//std::cout << "splu rows " << A_indptr.size() - 1 << std::endl;
 
 	const int threads_per_block = 512;
 
@@ -570,7 +575,14 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 
 	CHECK_CUDA(cudaDeviceSynchronize());
 
-	// print("M indptr ", As_indptr);
-	// print("M indice ", As_indices);
-	// print("M data   ", As_data);
+	//print("A indptr ", A_indptr, 20);
+	//print("A indice ", A_indices, 78);
+	//print("A data   ", A_data, 78);
+
+	//std::cout << "A nnz " << A_data.size() << " M nnz " << As_data.size() << std::endl;
+	//std::cout << "A indptr " << A_indptr.size() << " M indptr " << As_indptr.size() << std::endl;
+
+	//print("M indptr ", As_indptr, 20);
+	//print("M indice ", As_indices, 113);
+	//print("M data   ", As_data, 113);
 }

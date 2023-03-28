@@ -406,9 +406,9 @@ TEST(solver, zanudo)
 							  nonzero_data.begin());
 	nonzero_data.resize(d_end - nonzero_data.begin());
 
-	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(2229634, 2229642, 4326786, 4326794));
 	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
-												   { 0.66441368, 0.1986147, 0.13697163 }));
+												   { 0.28328907, 0.29057509, 0.21671093, 0.20942491 }));
 }
 
 TEST(solver, t026)
