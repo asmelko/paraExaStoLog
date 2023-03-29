@@ -1,3 +1,4 @@
+#include <thrust/copy.h>
 #include <thrust/host_vector.h>
 #include <thrust/set_operations.h>
 
@@ -30,6 +31,29 @@ struct transition_ftor : public thrust::unary_function<index_t, index_t>
 	}
 };
 
+struct evaluation_ftor : public thrust::unary_function<index_t, bool>
+{
+	index_t p_mask = 0;
+	index_t n_mask = 0;
+
+	evaluation_ftor(index_t p_mask, index_t n_mask) : p_mask(p_mask), n_mask(n_mask) {}
+
+	__host__ __device__ bool operator()(index_t x) const { return (x & p_mask) == p_mask && (x & n_mask) == 0; }
+};
+
+struct var_trans_ftor : public thrust::unary_function<thrust::tuple<index_t, bool>, bool>
+{
+	index_t var_mask;
+	bool transition;
+
+	var_trans_ftor(index_t var_mask, bool transition) : var_mask(var_mask), transition(transition) {}
+
+	__host__ __device__ index_t operator()(thrust::tuple<index_t, bool> x) const
+	{
+		return thrust::get<1>(x) == transition && ((thrust::get<0>(x) & var_mask) != 0) != transition;
+	}
+};
+
 d_idxvec transition_table::construct_transition_vector(const std::vector<index_t>& free_nodes, size_t fixed_val)
 {
 	auto c_b = thrust::make_counting_iterator(0);
@@ -41,28 +65,37 @@ d_idxvec transition_table::construct_transition_vector(const std::vector<index_t
 	return d_idxvec(b, e);
 }
 
-d_idxvec generate_transitions(const std::vector<clause_t>& clauses)
+std::pair<d_idxvec, d_idxvec> transition_table::generate_transitions(const std::vector<clause_t>& clauses,
+																	 index_t variable_idx)
 {
-	d_idxvec transitions;
+	index_t states_n = (index_t)(1ULL << model_.nodes.size());
+	thrust::device_vector<bool> evaluation(states_n, false);
 
+	// Evaluate DNF
 	for (const auto& c : clauses)
 	{
-		auto free_vars = c.get_free_variables();
-		auto fixed = c.get_fixed_part();
+		auto p_mask = c.get_positive_mask();
+		auto n_mask = c.get_negative_mask();
 
-		d_idxvec single_clause_transitions = transition_table::construct_transition_vector(free_vars, fixed);
-
-		d_idxvec tmp(transitions.size() + single_clause_transitions.size());
-
-		auto tmp_end = thrust::set_union(transitions.begin(), transitions.end(), single_clause_transitions.begin(),
-										 single_clause_transitions.end(), tmp.begin());
-
-		tmp.resize(tmp_end - tmp.begin());
-
-		std::swap(tmp, transitions);
+		thrust::transform_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(states_n),
+							 evaluation.begin(), evaluation.begin(), evaluation_ftor(p_mask, n_mask),
+							 thrust::logical_not<bool>());
 	}
 
-	return transitions;
+	auto b = thrust::make_zip_iterator(thrust::make_counting_iterator(0), evaluation.begin());
+	auto e = thrust::make_zip_iterator(thrust::make_counting_iterator(states_n), evaluation.end());
+
+	d_idxvec up_transition(states_n);
+	auto up_out = thrust::make_zip_iterator(up_transition.begin(), thrust::make_constant_iterator(0));
+	auto up_end = thrust::copy_if(b, e, up_out, var_trans_ftor(1 << variable_idx, true));
+	up_transition.resize(thrust::get<0>(up_end.get_iterator_tuple()) - up_transition.begin());
+
+	d_idxvec down_transition(states_n);
+	auto down_out = thrust::make_zip_iterator(down_transition.begin(), thrust::make_constant_iterator(0));
+	auto down_end = thrust::copy_if(b, e, down_out, var_trans_ftor(1 << variable_idx, false));
+	down_transition.resize(thrust::get<0>(down_end.get_iterator_tuple()) - down_transition.begin());
+
+	return std::make_pair(std::move(up_transition), std::move(down_transition));
 }
 
 struct flip_ftor : public thrust::unary_function<index_t, index_t>
@@ -88,10 +121,11 @@ std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()
 {
 	std::vector<d_idxvec> ups, downs;
 
-	for (const auto& f : model_.dnfs)
+	for (size_t i = 0; i < model_.dnfs.size(); i++)
 	{
-		ups.emplace_back(generate_transitions(f.activations));
-		downs.emplace_back(generate_transitions(f.deactivations));
+		auto p = generate_transitions(model_.dnfs[i].activations, i);
+		ups.emplace_back(std::move(p.first));
+		downs.emplace_back(std::move(p.second));
 	}
 
 	size_t transitions_count = 0;

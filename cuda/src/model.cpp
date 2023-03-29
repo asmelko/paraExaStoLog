@@ -5,29 +5,20 @@
 
 #include "boolstuff/BoolExprParser.h"
 
-std::vector<index_t> clause_t::get_free_variables() const
-{
-	std::vector<index_t> ret;
-	for (int i = 0; i < variables_count; i++)
-	{
-		if (std::find(positive_variables.begin(), positive_variables.end(), i) == positive_variables.end()
-			&& std::find(negative_variables.begin(), negative_variables.end(), i) == negative_variables.end())
-			ret.push_back(i);
-	}
-
-	return ret;
-}
-
-index_t clause_t::get_fixed_part() const
+index_t get_part(const std::vector<index_t>& vars)
 {
 	index_t fixed = 0;
-	for (auto var : positive_variables)
+	for (auto var : vars)
 	{
 		fixed += 1ULL << var;
 	}
 
 	return fixed;
 }
+
+index_t clause_t::get_positive_mask() const { return get_part(positive_variables); }
+
+index_t clause_t::get_negative_mask() const { return get_part(negative_variables); }
 
 void clause_t::print() const
 {
@@ -39,11 +30,10 @@ void clause_t::print() const
 	for (auto n : negative_variables)
 		std::cout << n << " ";
 	std::cout << std::endl;
-	std::cout << "Fixed: " << get_fixed_part() << std::endl;
 }
 
 std::vector<clause_t> model_builder::construct_clauses(const std::string& target, const std::string& factors,
-													   const std::vector<std::string>& targets, bool activate)
+													   const std::vector<std::string>& targets)
 {
 	std::vector<clause_t> clauses;
 
@@ -75,25 +65,6 @@ std::vector<clause_t> model_builder::construct_clauses(const std::string& target
 					target_indices.push_back(i);
 			}
 		};
-
-		auto test_skip_and_modify = [&target](const std::set<std::string>& to_be_absent,
-											  std::set<std::string>& to_be_present) {
-			if (to_be_absent.find(target) != to_be_absent.end())
-				return true;
-
-			to_be_present.insert(target);
-
-			return false;
-		};
-
-		bool skip;
-		if (activate)
-			skip = test_skip_and_modify(positives, negatives);
-		else
-			skip = test_skip_and_modify(negatives, positives);
-
-		if (skip)
-			continue;
 
 		indexize(positives, clause.positive_variables);
 		indexize(negatives, clause.negative_variables);
@@ -140,10 +111,9 @@ model_t model_builder::construct_model(const std::string& file)
 
 	for (size_t i = 0; i < factors.size(); ++i)
 	{
-		transition_formulae_t t;
+		transition_formula_t t;
 
-		t.activations = construct_clauses(targets[i], factors[i], targets, true);
-		t.deactivations = construct_clauses(targets[i], "!(" + factors[i] + ")", targets, false);
+		t.activations = construct_clauses(targets[i], factors[i], targets);
 
 		model.dnfs.emplace_back(std::move(t));
 	}

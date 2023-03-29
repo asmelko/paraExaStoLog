@@ -9,10 +9,12 @@ class transition_table
 	cu_context& context_;
 	model_t model_;
 
+	std::pair<d_idxvec, d_idxvec> generate_transitions(const std::vector<clause_t>& clauses, index_t variable_idx);
+
 	std::pair<d_idxvec, d_idxvec> compute_rows_and_cols();
 
 public:
-	d_idxvec indptr; // CSC arrays
+	d_idxvec indptr;	 // CSC arrays
 	d_idxvec rows, cols; // COO arrays
 
 	transition_table(cu_context& context, model_t model);
