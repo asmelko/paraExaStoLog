@@ -273,7 +273,7 @@ void host_lu(cusolverSpHandle_t handle, thrust::host_vector<index_t>& indptr, th
 
 			big_rows.resize(end - big_rows.begin());
 
-			map.resize(big_rows.back());
+			map.resize(big_rows.back() + 1);
 
 			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
 							   [&](index_t i) { map[big_rows[i]] = orig_n + i; });
@@ -282,13 +282,15 @@ void host_lu(cusolverSpHandle_t handle, thrust::host_vector<index_t>& indptr, th
 				rows.begin(), rows.end(), rows.begin(), [&](index_t x) { return map[x]; },
 				[orig_n](index_t x) { return x >= orig_n; });
 
-			indptr.reserve(indptr.size() + big_rows.size());
+			indptr.resize(indptr.size() + big_rows.size());
 			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
-							   [&](index_t i) { indptr.push_back(nnz); });
+							   [&](index_t i) { indptr[orig_n + 1 + i] = nnz; });
 		}
 	}
 
 	auto n = indptr.size() - 1;
+
+	// std::cout << "lu orig n: " << orig_n << " lu n: " << n << std::endl;
 
 	csrluInfoHost_t info;
 	CHECK_CUSOLVER(cusolverSpCreateCsrluInfoHost(&info));
@@ -462,7 +464,7 @@ std::vector<lu_t> lu_big_nnz(cusolverSpHandle_t handle, index_t big_scc_start, c
 
 						 thrust::host_vector<index_t> scc_indices(indices.begin() + base,
 																  indices.begin() + base + scc_nnz);
-						 thrust::transform(thrust::seq, scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+						 thrust::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
 										   [scc_offset](index_t x) { return x - scc_offset; });
 
 						 thrust::host_vector<real_t> scc_data(data.begin() + base, data.begin() + base + scc_nnz);
@@ -517,13 +519,13 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	const index_t small_scc_rows = small_sccs_size == 0 ? 0 : part_scc_sizes[small_sccs_size - 1];
 	const index_t big_scc_rows = big_sccs_size == 0 ? 0 : part_scc_sizes.back();
 
-	//std::cout << "splu big scc rows " << big_scc_rows << std::endl;
-	//std::cout << "splu big sccs " << big_sccs_size << std::endl;
+	// std::cout << "splu big scc rows " << big_scc_rows << std::endl;
+	// std::cout << "splu big sccs " << big_sccs_size << std::endl;
 
-	//std::cout << "splu small scc rows " << small_scc_rows << std::endl;
-	//std::cout << "splu small sccs " << small_sccs_size << std::endl;
+	// std::cout << "splu small scc rows " << small_scc_rows << std::endl;
+	// std::cout << "splu small sccs " << small_sccs_size << std::endl;
 
-	//std::cout << "splu rows " << A_indptr.size() - 1 << std::endl;
+	// std::cout << "splu rows " << A_indptr.size() - 1 << std::endl;
 
 	const int threads_per_block = 512;
 
@@ -575,14 +577,14 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 
 	CHECK_CUDA(cudaDeviceSynchronize());
 
-	//print("A indptr ", A_indptr, 20);
-	//print("A indice ", A_indices, 78);
-	//print("A data   ", A_data, 78);
+	// print("A indptr ", A_indptr, 20);
+	// print("A indice ", A_indices, 78);
+	// print("A data   ", A_data, 78);
 
-	//std::cout << "A nnz " << A_data.size() << " M nnz " << As_data.size() << std::endl;
-	//std::cout << "A indptr " << A_indptr.size() << " M indptr " << As_indptr.size() << std::endl;
+	// std::cout << "A nnz " << A_data.size() << " M nnz " << As_data.size() << std::endl;
+	// std::cout << "A indptr " << A_indptr.size() << " M indptr " << As_indptr.size() << std::endl;
 
-	//print("M indptr ", As_indptr, 20);
-	//print("M indice ", As_indices, 113);
-	//print("M data   ", As_data, 113);
+	// print("M indptr ", As_indptr, 20);
+	// print("M indice ", As_indices, 113);
+	// print("M data   ", As_data, 113);
 }
