@@ -36,8 +36,8 @@ public:
 
 	void create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex);
 
-	float determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
-					  int nnz);
+	double determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
+					   int nnz);
 
 	void take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 						bool mapping_prefilled = false);
