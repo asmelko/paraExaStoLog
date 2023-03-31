@@ -5,7 +5,9 @@
 #include "initial_state.h"
 #include "sparse_utils.h"
 #include "transition_graph.h"
+#include "transition_rates.h"
 #include "transition_table.h"
+
 
 class solver
 {
@@ -19,6 +21,8 @@ class solver
 	thrust::host_vector<index_t> terminals_offsets_;
 	d_idxvec nonterminals_offsets_;
 
+	d_datvec rates_;
+
 	d_idxvec submatrix_vertex_mapping_;
 
 public:
@@ -30,7 +34,7 @@ public:
 
 	thrust::device_vector<float> final_state;
 
-	solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s);
+	solver(cu_context& context, const transition_table& t, transition_graph g, transition_rates r, initial_state s);
 
 	void break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_matrix& B);
 

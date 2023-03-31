@@ -28,7 +28,7 @@ struct equals_ftor : public thrust::unary_function<index_t, bool>
 __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_t* __restrict__ dst_rows,
 								  float* __restrict__ dst_data, const index_t* __restrict__ src_rows,
 								  const index_t* __restrict__ src_indptr, const index_t* __restrict__ src_perm,
-								  int perm_size)
+								  int perm_size, const real_t* __restrict__ rates)
 {
 	int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
@@ -41,28 +41,30 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 
 	index_t dst_begin = dst_indptr[idx];
 
-	bool diag_inserted = false;
+	real_t diag_sum = 0.f;
+	index_t dst_diag_idx = size;
 
 	for (int i = 0; i < size; i++)
 	{
 		index_t r = src_rows[src_begin + i];
 
-		if (!diag_inserted && r > diag)
+		if (dst_diag_idx == size && r > diag)
 		{
-			dst_rows[dst_begin + i] = diag;
-			dst_data[dst_begin + i] = -(float)size;
-			diag_inserted = true;
+			dst_diag_idx = dst_begin + i;
 			dst_begin++;
 		}
+
+		bool up = r < diag;
+		index_t state = r ^ diag;
+		real_t rate = rates[2 * state] + (up ? 0 : 1);
+		dst_data[dst_begin + i] = rate;
+		diag_sum += rate;
 
 		dst_rows[dst_begin + i] = r;
 	}
 
-	if (!diag_inserted)
-	{
-		dst_rows[dst_begin + size] = diag;
-		dst_data[dst_begin + size] = -(float)size;
-	}
+	dst_rows[dst_diag_idx] = diag;
+	dst_data[dst_diag_idx] = -diag_sum;
 }
 
 __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restrict__ out_indices,
@@ -94,13 +96,14 @@ __global__ void hstack(const index_t* __restrict__ out_indptr, index_t* __restri
 	}
 }
 
-solver::solver(cu_context& context, const transition_table& t, transition_graph g, initial_state s)
+solver::solver(cu_context& context, const transition_table& t, transition_graph g, transition_rates r, initial_state s)
 	: context_(context),
 	  initial_state_(std::move(s.state)),
 	  rows_(t.rows),
 	  cols_(t.cols),
 	  indptr_(t.indptr),
 	  ordered_vertices_(std::move(g.reordered_vertices)),
+	  rates_(std::move(r.rates)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
 {
 	terminals_offsets_ =
@@ -217,7 +220,7 @@ void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_
 		int gridsize = (n + blocksize - 1) / blocksize;
 		scatter_rows_data<<<gridsize, blocksize>>>(m.indptr.data().get(), m.indices.data().get(), m.data.data().get(),
 												   rows_.data().get(), indptr_.data().get(),
-												   (&*vertices_subset_begin).get(), n);
+												   (&*vertices_subset_begin).get(), n, rates_.data().get());
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	}

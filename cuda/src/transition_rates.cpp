@@ -60,15 +60,15 @@ d_datvec transition_rates::generate(std::function<real_t()> generator, const std
 
 transition_rates::transition_rates(const model_t& model) : model_(model) {}
 
-d_datvec transition_rates::generate_uniform(const std::vector<ptrans_t>& up_transition_rates,
-											const std::vector<ptrans_t>& down_transition_rates)
+void transition_rates::generate_uniform(const std::vector<ptrans_t>& up_transition_rates,
+										const std::vector<ptrans_t>& down_transition_rates)
 {
 	auto generator = []() { return 1.f; };
-	return generate(generator, up_transition_rates, down_transition_rates);
+	rates = generate(generator, up_transition_rates, down_transition_rates);
 }
 
-d_datvec transition_rates::generate_normal(real_t mean, real_t std, const std::vector<ptrans_t>& up_transition_rates,
-										   const std::vector<ptrans_t>& down_transition_rates)
+void transition_rates::generate_normal(real_t mean, real_t std, const std::vector<ptrans_t>& up_transition_rates,
+									   const std::vector<ptrans_t>& down_transition_rates)
 {
 	std::default_random_engine generator;
 	std::normal_distribution<real_t> distribution(mean, std);
@@ -88,5 +88,5 @@ d_datvec transition_rates::generate_normal(real_t mean, real_t std, const std::v
 		return num;
 	};
 
-	return generate(generate_nonnegative, up_transition_rates, down_transition_rates);
+	rates = generate(generate_nonnegative, up_transition_rates, down_transition_rates);
 }

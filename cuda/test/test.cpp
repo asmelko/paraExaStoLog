@@ -80,7 +80,10 @@ TEST(solver, toy)
 
 	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -142,7 +145,10 @@ TEST(solver, toy2)
 
 	initial_state st(model.nodes, { "A", "B", "C" }, { false, false, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -204,7 +210,10 @@ TEST(solver, toy3)
 
 	initial_state st(model.nodes, { "A", "B" }, { false, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -264,7 +273,10 @@ TEST(solver, kras)
 
 	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -313,7 +325,10 @@ TEST(solver, cohen)
 		{ "ECMicroenv", "DNAdamage", "Metastasis", "Migration", "Invasion", "EMT", "Apoptosis", "Notch_pthw", "p53" },
 		{ true, true, false, false, false, false, false, true, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -355,7 +370,10 @@ TEST(solver, zanudo)
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -401,7 +419,10 @@ TEST(solver, mammal)
 	initial_state st(model.nodes, { "CycE", "CycA", "CycB", "Cdh1", "Rb_b1", "Rb_b2", "p27_b1", "p27_b2" },
 					 { false, false, false, true, true, true, true, true }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 
@@ -489,7 +510,7 @@ TEST(solver, mammal)
 		ASSERT_EQ(nonzero_indices[i], expected_indices[i]);
 	}
 
-	// I have hard time finding the right comparing function 
+	// I have hard time finding the right comparing function
 	ASSERT_THAT(nonzero_data[0], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[0]));
 	ASSERT_THAT(nonzero_data[1], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[1]));
 	ASSERT_THAT(nonzero_data[100], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[100]));
