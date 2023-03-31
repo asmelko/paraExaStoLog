@@ -19,7 +19,10 @@ int main(int argc, char** argv)
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
 
-	solver s(context, table, std::move(g), std::move(st));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
 	s.solve();
 }
