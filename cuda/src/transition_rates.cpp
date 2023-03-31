@@ -4,12 +4,67 @@
 
 #include "thrust/fill.h"
 
-transition_rates::transition_rates(const model_t& model) : model_(model), rates(model_.nodes.size() * 2) {}
+std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t>& transition_rates)
+{
+	std::map<index_t, real_t> rates;
+	for (const auto& rate : transition_rates)
+	{
+		auto it = std::find(model_.nodes.begin(), model_.nodes.end(), rate.first);
+		if (it == model_.nodes.end())
+			throw std::runtime_error("node " + rate.first + " not found");
+		if (rate.second < 0)
+			throw std::runtime_error("transition rate must be non-negative");
+
+		rates[std::distance(it, model_.nodes.begin())] = rate.second;
+	}
+
+	return rates;
+}
+
+
+d_datvec transition_rates::generate(std::function<real_t()> generator, const std::vector<ptrans_t>& up_transition_rates,
+									const std::vector<ptrans_t>& down_transition_rates)
+{
+	std::vector<real_t> rates;
+	rates.resize(model_.nodes.size() * 2);
+
+	auto up_rates = transform(up_transition_rates);
+	auto down_rates = transform(down_transition_rates);
+
+	for (size_t i = 0; i < model_.nodes.size(); i++)
+	{
+		auto up_rate = up_rates.find(i);
+		auto down_rate = down_rates.find(i);
+
+		if (up_rate != up_rates.end())
+		{
+			rates[i * 2] = up_rate->second;
+		}
+		else
+		{
+			rates[i * 2] = generator();
+		}
+
+		if (down_rate != down_rates.end())
+		{
+			rates[i * 2 + 1] = down_rate->second;
+		}
+		else
+		{
+			rates[i * 2 + 1] = generator();
+		}
+	}
+
+	return rates;
+}
+
+transition_rates::transition_rates(const model_t& model) : model_(model) {}
 
 d_datvec transition_rates::generate_uniform(const std::vector<ptrans_t>& up_transition_rates,
 											const std::vector<ptrans_t>& down_transition_rates)
 {
-	return d_datvec(model_.nodes.size() * 2, 1.f);
+	auto generator = []() { return 1.f; };
+	return generate(generator, up_transition_rates, down_transition_rates);
 }
 
 d_datvec transition_rates::generate_normal(real_t mean, real_t std, const std::vector<ptrans_t>& up_transition_rates,
@@ -33,13 +88,5 @@ d_datvec transition_rates::generate_normal(real_t mean, real_t std, const std::v
 		return num;
 	};
 
-	std::vector<real_t> rates;
-	rates.resize(model_.nodes.size() * 2);
-
-	for (size_t i = 0; i < model_.nodes.size() * 2; ++i)
-	{
-		rates[i] = generate_nonnegative();
-	}
-
-	return rates;
+	return generate(generate_nonnegative, up_transition_rates, down_transition_rates);
 }
