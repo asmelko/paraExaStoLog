@@ -42,7 +42,7 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 	index_t dst_begin = dst_indptr[idx];
 
 	real_t diag_sum = 0.f;
-	index_t dst_diag_idx = size;
+	index_t dst_diag_idx = dst_begin + size;
 
 	for (int i = 0; i < size; i++)
 	{
