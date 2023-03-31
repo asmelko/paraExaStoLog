@@ -56,8 +56,6 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 
 		bool up = r < diag;
 		index_t state = __ffs(r ^ diag) - 1;
-		if (state == -1)
-			printf("bad\n");
 		real_t rate = rates[2 * state + (up ? 0 : 1)];
 		dst_data[dst_begin + i] = rate;
 		diag_sum += rate;
