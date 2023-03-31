@@ -25,8 +25,8 @@ std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t
 d_datvec transition_rates::generate(std::function<real_t()> generator, const std::vector<ptrans_t>& up_transition_rates,
 									const std::vector<ptrans_t>& down_transition_rates)
 {
-	std::vector<real_t> rates;
-	rates.resize(model_.nodes.size() * 2);
+	std::vector<real_t> h_rates;
+	h_rates.resize(model_.nodes.size() * 2);
 
 	auto up_rates = transform(up_transition_rates);
 	auto down_rates = transform(down_transition_rates);
@@ -38,24 +38,24 @@ d_datvec transition_rates::generate(std::function<real_t()> generator, const std
 
 		if (up_rate != up_rates.end())
 		{
-			rates[i * 2] = up_rate->second;
+			h_rates[i * 2] = up_rate->second;
 		}
 		else
 		{
-			rates[i * 2] = generator();
+			h_rates[i * 2] = generator();
 		}
 
 		if (down_rate != down_rates.end())
 		{
-			rates[i * 2 + 1] = down_rate->second;
+			h_rates[i * 2 + 1] = down_rate->second;
 		}
 		else
 		{
-			rates[i * 2 + 1] = generator();
+			h_rates[i * 2 + 1] = generator();
 		}
 	}
 
-	return rates;
+	return h_rates;
 }
 
 transition_rates::transition_rates(const model_t& model) : model_(model) {}

@@ -60,8 +60,12 @@ __global__ void scatter_rows_data(const index_t* __restrict__ dst_indptr, index_
 		dst_data[dst_begin + i] = rate;
 		diag_sum += rate;
 
+		printf("thread %i diag %i r %i state %i\n", idx, diag, r, state);
+
 		dst_rows[dst_begin + i] = r;
 	}
+
+	printf("thread %i dst_diag_idx %i size %i\n", idx, diag, size);
 
 	dst_rows[dst_diag_idx] = diag;
 	dst_data[dst_diag_idx] = -diag_sum;
@@ -218,6 +222,7 @@ void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_
 	{
 		int blocksize = 512;
 		int gridsize = (n + blocksize - 1) / blocksize;
+		std::cout <<"rates size" <<  rates_.size() << std::endl;
 		scatter_rows_data<<<gridsize, blocksize>>>(m.indptr.data().get(), m.indices.data().get(), m.data.data().get(),
 												   rows_.data().get(), indptr_.data().get(),
 												   (&*vertices_subset_begin).get(), n, rates_.data().get());
