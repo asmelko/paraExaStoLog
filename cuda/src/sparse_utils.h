@@ -66,5 +66,5 @@ sparse_csr_matrix csc2csr(cusparseHandle_t handle, const sparse_csc_matrix& in, 
 						  index_t nnz);
 
 // Sparse matrix and dense vector multiplication
-d_datvec mvmul(cusparseHandle_t handle, const d_idxvec& indptr, const d_idxvec& indices, const d_datvec& data,
-			   cs_kind k, index_t rows, index_t cols, const d_datvec& x);
+d_datvec mvmul(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_datvec& data, cs_kind k, index_t rows,
+			   index_t cols, d_datvec& x);

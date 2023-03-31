@@ -157,29 +157,29 @@ sparse_csr_matrix csc2csr(cusparseHandle_t handle, const sparse_csc_matrix& in, 
 }
 
 
-d_datvec mvmul(cusparseHandle_t handle, const d_idxvec& indptr, const d_idxvec& indices, const d_datvec& data,
-			   cs_kind k, index_t rows, index_t cols, const d_datvec& x)
+d_datvec mvmul(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_datvec& data, cs_kind k, index_t rows,
+			   index_t cols, d_datvec& x)
 {
 	d_datvec y(rows);
 	float alpha = 1.0f;
 	float beta = 0.0f;
 
-	cusparseConstSpMatDescr_t matA;
-	cusparseConstDnVecDescr_t vecX;
+	cusparseSpMatDescr_t matA;
+	cusparseDnVecDescr_t vecX;
 	cusparseDnVecDescr_t vecY;
 	size_t bufferSize = 0;
 
 	if (k == cs_kind::CSR)
-		CHECK_CUSPARSE(cusparseCreateConstCsr(&matA, rows, cols, data.size(), indptr.data().get(), indices.data().get(),
-											  data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-											  CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+		CHECK_CUSPARSE(cusparseCreateCsr(&matA, rows, cols, data.size(), indptr.data().get(), indices.data().get(),
+										 data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+										 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
 	else
-		CHECK_CUSPARSE(cusparseCreateConstCsc(&matA, rows, cols, data.size(), indptr.data().get(), indices.data().get(),
-											  data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-											  CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+		CHECK_CUSPARSE(cusparseCreateCsc(&matA, rows, cols, data.size(), indptr.data().get(), indices.data().get(),
+										 data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+										 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
 
 	// Create dense vector X
-	CHECK_CUSPARSE(cusparseCreateConstDnVec(&vecX, cols, x.data().get(), CUDA_R_32F));
+	CHECK_CUSPARSE(cusparseCreateDnVec(&vecX, cols, x.data().get(), CUDA_R_32F));
 	// Create dense vector y
 	CHECK_CUSPARSE(cusparseCreateDnVec(&vecY, rows, y.data().get(), CUDA_R_32F));
 	// allocate an external buffer if needed
