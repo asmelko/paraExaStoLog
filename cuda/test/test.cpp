@@ -500,7 +500,7 @@ TEST(solver, mammal)
 
 	for (index_t i = 0; i < nonzero_indices.size(); i++)
 	{
-		ASSERT_NEAR(nonzero_data[i], expected_probs[i], 0.001f);
+		ASSERT_NEAR(nonzero_data[i], expected_probs[i], 1e-07f);
 	}
 }
 
