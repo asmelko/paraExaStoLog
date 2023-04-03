@@ -518,3 +518,50 @@ TEST(solver, mammal)
 	ASSERT_THAT(nonzero_data.back(),
 				::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs.back()));
 }
+
+TEST(rates, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	thrust::host_vector<index_t> vertices = g.reordered_vertices;
+	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+
+	initial_state st(model.nodes);
+
+	transition_rates r(model);
+	r.generate_uniform({}, { { "C", 2 } });
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
+
+	s.solve();
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	thrust::host_vector<float> nonzero_data(final_state.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
+								 nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(1, 2, 4));
+	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+												   { 0.5000000000000009, 0.22916666666666666, 0.2708333333333333 }));
+}
