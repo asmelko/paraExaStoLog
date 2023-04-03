@@ -2,11 +2,9 @@
 
 #include <random>
 
-#include "thrust/fill.h"
-
 std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t>& transition_rates)
 {
-	std::map<index_t, real_t> rates;
+	std::map<index_t, real_t> rates_map;
 	for (const auto& rate : transition_rates)
 	{
 		auto it = std::find(model_.nodes.begin(), model_.nodes.end(), rate.first);
@@ -15,12 +13,11 @@ std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t
 		if (rate.second < 0)
 			throw std::runtime_error("transition rate must be non-negative");
 
-		rates[std::distance(model_.nodes.begin(), it)] = rate.second;
+		rates_map[(index_t)std::distance(model_.nodes.begin(), it)] = rate.second;
 	}
 
-	return rates;
+	return rates_map;
 }
-
 
 d_datvec transition_rates::generate(std::function<real_t()> generator, const std::vector<ptrans_t>& up_transition_rates,
 									const std::vector<ptrans_t>& down_transition_rates)
@@ -31,7 +28,7 @@ d_datvec transition_rates::generate(std::function<real_t()> generator, const std
 	auto up_rates = transform(up_transition_rates);
 	auto down_rates = transform(down_transition_rates);
 
-	for (size_t i = 0; i < model_.nodes.size(); i++)
+	for (index_t i = 0; i < model_.nodes.size(); i++)
 	{
 		auto up_rate = up_rates.find(i);
 		auto down_rate = down_rates.find(i);

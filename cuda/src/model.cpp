@@ -32,7 +32,7 @@ void clause_t::print() const
 	std::cout << std::endl;
 }
 
-std::vector<clause_t> model_builder::construct_clauses(const std::string& target, const std::string& factors,
+std::vector<clause_t> model_builder::construct_clauses(const std::string& factors,
 													   const std::vector<std::string>& targets)
 {
 	std::vector<clause_t> clauses;
@@ -113,7 +113,7 @@ model_t model_builder::construct_model(const std::string& file)
 	{
 		transition_formula_t t;
 
-		t.activations = construct_clauses(targets[i], factors[i], targets);
+		t.activations = construct_clauses(factors[i], targets);
 
 		model.dnfs.emplace_back(std::move(t));
 	}

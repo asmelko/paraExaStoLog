@@ -7,7 +7,6 @@
 #include "model.h"
 #include "types.h"
 
-
 using ptrans_t = std::pair<std::string, real_t>;
 
 class transition_rates

@@ -38,18 +38,8 @@ public:
 
 	void break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_matrix& B);
 
-	void create_minor(d_idxvec& indptr, d_idxvec& rows, d_datvec& data, const index_t remove_vertex);
-
-	double determinant(const d_idxvec& indptr, const d_idxvec& rows, const thrust::device_vector<float>& data, int n,
-					   int nnz);
-
 	void take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 						bool mapping_prefilled = false);
-
-	void solve_system(const d_idxvec& indptr, d_idxvec& rows, thrust::device_vector<float>& data, int n, int cols,
-					  int nnz, const d_idxvec& b_indptr, const d_idxvec& b_indices,
-					  const thrust::device_vector<float>& b_data, d_idxvec& x_indptr, d_idxvec& x_indices,
-					  thrust::device_vector<float>& x_data);
 
 	void solve_terminal_part();
 

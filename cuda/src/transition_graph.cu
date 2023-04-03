@@ -1,60 +1,29 @@
-#include <device_launch_parameters.h>
-
 #include <thrust/set_operations.h>
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 
+#include "kernels/kernels.h"
 #include "sga/scc.h"
 #include "sparse_utils.h"
 #include "transition_graph.h"
-#include "transition_table.h"
 #include "utils.h"
 
-__global__ void topological_labelling(index_t n, const index_t* __restrict__ indptr,
-									  const index_t* __restrict__ indices, index_t* __restrict__ labels,
-									  index_t current_label, bool* __restrict__ changed)
+struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, bool>
 {
-	auto idx = blockDim.x * blockIdx.x + threadIdx.x;
-
-	if (idx >= n)
-		return;
-
-	if (labels[idx] != 0) // already labeled
-		return;
-
-	auto begin = indptr[idx];
-	auto end = indptr[idx + 1];
-
-	for (auto i = begin; i < end; i++)
+	__host__ __device__ bool operator()(const thrust::tuple<index_t, index_t>& x) const
 	{
-		auto l = labels[indices[i]];
-		if (l == 0 || l == current_label) // not labelled or labelled in this round
-			return;
+		return thrust::get<0>(x) != thrust::get<1>(x);
 	}
+};
 
-	labels[idx] = current_label;
-	changed[0] = true;
-}
-
-__global__ void reorganize(index_t scc_n, const index_t* __restrict__ original_offsets,
-						   const index_t* __restrict__ new_offsets, const index_t* __restrict__ order,
-						   const index_t* __restrict__ scc_groups, index_t* __restrict__ reordered)
+struct map_ftor : public thrust::unary_function<index_t, index_t>
 {
-	auto idx = blockDim.x * blockIdx.x + threadIdx.x;
+	const index_t* __restrict__ map;
 
-	if (idx >= scc_n)
-		return;
+	map_ftor(const index_t* map) : map(map) {}
 
-	// idx = (idx >= t_n) ? (scc_n - 1) - (idx - t_n) : idx;
-
-	auto scc_idx = order[idx];
-	auto out_begin = new_offsets[idx];
-	auto in_begin = original_offsets[scc_idx];
-	auto in_end = original_offsets[scc_idx + 1];
-
-	for (int i = in_begin; i < in_end; i++)
-		reordered[out_begin + i - in_begin] = scc_groups[i];
-}
+	__host__ __device__ index_t operator()(index_t x) const { return map[x]; }
+};
 
 transition_graph::transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols,
 								   const d_idxvec& indptr)
@@ -65,14 +34,6 @@ transition_graph::transition_graph(cu_context& context, const d_idxvec& rows, co
 	  vertices_count_(indptr_.size() - 1),
 	  edges_count_(rows.size())
 {}
-
-struct zip_non_equal_ftor : public thrust::unary_function<thrust::tuple<index_t, index_t>, bool>
-{
-	__host__ __device__ bool operator()(const thrust::tuple<index_t, index_t>& x) const
-	{
-		return thrust::get<0>(x) != thrust::get<1>(x);
-	}
-};
 
 d_idxvec transition_graph::compute_sccs()
 {
@@ -103,11 +64,6 @@ d_idxvec transition_graph::compute_sccs()
 			CUSPARSE_ACTION_SYMBOLIC, CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, buffer.data().get()));
 	}
 
-	// print("in_offset ", in_offsets);
-	// print("in_indice ", in_indices);
-	// print("out_offset ", out_offsets);
-	// print("out_indice ", out_indices);
-
 	d_idxvec labels(n);
 
 	SCCSolver(n, nnz, in_offsets.data().get(), in_indices.data().get(), out_offsets.data().get(),
@@ -130,21 +86,14 @@ void transition_graph::toposort(const d_idxvec& indptr, const d_idxvec& indices,
 		changed[0] = false;
 		++curr_label;
 
-		int blocksize = 256;
-		int gridsize = (n + blocksize - 1) / blocksize;
-		topological_labelling<<<gridsize, blocksize>>>(n, indptr.data().get(), indices.data().get(),
-													   labels.data().get(), curr_label, changed.data().get());
+		run_topological_labelling(n, indptr.data().get(), indices.data().get(), labels.data().get(), curr_label,
+								  changed.data().get());
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	} while (changed.front() == true);
 
-	// print("topo labels   ", labels);
-
 	ordering = d_idxvec(thrust::make_counting_iterator(0), thrust::make_counting_iterator(n));
 	thrust::sort_by_key(labels.begin(), labels.end(), thrust::make_zip_iterator(ordering.begin(), sizes.begin() + 1));
-
-	// print("20 topo ordering ", ordering, 20);
-	// print("20 topo sizes    ", sizes, 20);
 }
 
 void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_count, d_idxvec& meta_indptr,
@@ -172,12 +121,7 @@ void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_cou
 
 void transition_graph::find_terminals()
 {
-	std::cout << "vertices count " << vertices_count_ << std::endl;
-	std::cout << "edges count " << edges_count_ << std::endl;
-
 	auto labels = compute_sccs();
-
-	std::cout << "labeled " << std::endl;
 
 	d_idxvec scc_ids_tmp = labels;
 	d_idxvec vertices_ordered_by_scc(thrust::make_counting_iterator<index_t>(0),
@@ -196,10 +140,6 @@ void transition_graph::find_terminals()
 	scc_sizes[0] = 0;
 	thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), original_sccs_offsets.begin());
 
-	// print("labels    ", labels);
-	// print("scc_ids   ", scc_ids);
-	// print("scc_sizes ", scc_sizes);
-
 	auto sccs_count = scc_ids.size();
 
 	// make labels start from 0
@@ -209,11 +149,8 @@ void transition_graph::find_terminals()
 		thrust::copy(thrust::make_counting_iterator<intptr_t>(0), thrust::make_counting_iterator<intptr_t>(sccs_count),
 					 thrust::make_permutation_iterator(mapping.begin(), scc_ids.begin()));
 
-		thrust::transform(labels.begin(), labels.end(), labels.begin(),
-						  [map = mapping.data().get()] __device__(index_t x) { return map[x]; });
+		thrust::transform(labels.begin(), labels.end(), labels.begin(), map_ftor(mapping.data().get()));
 	}
-
-	std::cout << "sccs size " << sccs_count << std::endl;
 
 	if (sccs_count == 1)
 	{
@@ -244,25 +181,14 @@ void transition_graph::find_terminals()
 
 		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
 
-		// print("20 scc sizes ", scc_sizes, 20);
-
 		sccs_offsets = std::move(scc_sizes);
 
 		reordered_vertices.resize(vertices_count_);
 
-		int blocksize = 256;
-		int gridsize = (sccs_count + blocksize - 1) / blocksize;
-
-		std::cout << "reorganize start" << std::endl;
-
-		reorganize<<<gridsize, blocksize>>>(sccs_count, original_sccs_offsets.data().get(), sccs_offsets.data().get(),
-											meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
-											reordered_vertices.data().get());
+		run_reorganize(sccs_count, original_sccs_offsets.data().get(), sccs_offsets.data().get(),
+					   meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
+					   reordered_vertices.data().get());
 
 		CHECK_CUDA(cudaDeviceSynchronize());
-
-		std::cout << "reorganize end" << std::endl;
 	}
-
-	// print("20 reordered_vertices ", reordered_vertices, 20);
 }

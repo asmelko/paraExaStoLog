@@ -18,11 +18,6 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 							 const std::vector<bool>& fixed_node_values, float fixed_probability)
 
 {
-	//std::cout << "node names ";
-	//for (int i = 0; i < node_names.size(); i++)
-	//	std::cout << node_names[i] << " ";
-	//std::cout << std::endl;
-
 	if (fixed_node_names.empty())
 	{
 		state = thrust::device_vector<float>(1ULL << node_names.size(), 1.f / (1ULL << node_names.size()));
@@ -33,7 +28,6 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	std::vector<index_t> fixed_nodes;
 	for (const auto& fn : fixed_node_names)
 	{
-		//std::cout << fn << std::endl;
 		auto it = std::find(node_names.begin(), node_names.end(), fn);
 
 		if (it == node_names.end())
@@ -44,11 +38,6 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 		fixed_nodes.push_back(std::distance(node_names.begin(), it));
 	}
 
-	//std::cout << "fixed nodes ";
-	//for (int i = 0; i < fixed_nodes.size(); i++)
-	//	std::cout << fixed_nodes[i] << " ";
-	//std::cout << std::endl;
-
 	d_idxvec fixed_indices;
 
 	{
@@ -57,18 +46,11 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 		for (size_t i = 0; i < fixed_nodes.size(); i++)
 			fixed_val += (1 << fixed_nodes[i]) * fixed_node_values[i];
 
-		std::cout << "fixed_val" << fixed_val << std::endl;
-
 		std::vector<index_t> free_nodes;
 
 		for (size_t i = 0; i < node_names.size(); i++)
 			if (std::find(fixed_nodes.begin(), fixed_nodes.end(), i) == fixed_nodes.end())
 				free_nodes.push_back(i);
-
-		//std::cout << "free nodes ";
-		//for (int i = 0; i < free_nodes.size(); i++)
-		//	std::cout << free_nodes[i] << " ";
-		//std::cout << std::endl;
 
 		fixed_indices = transition_table::construct_transition_vector(free_nodes, fixed_val);
 	}
@@ -77,9 +59,6 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	size_t nonfixed_states = (1ULL << node_names.size()) - fixed_indices.size();
 
 	state = thrust::device_vector<float>(fixed_states + nonfixed_states, (1.f - fixed_probability) / nonfixed_states);
-
-	//std::cout << "fixed/nonfixed" << fixed_states << " " << nonfixed_states << std ::endl;
-	//std::cout << "prob" << fixed_probability / (float)fixed_states << std ::endl;
 
 	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),

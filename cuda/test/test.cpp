@@ -100,7 +100,7 @@ TEST(solver, toy)
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
-	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 3, 5, 7, 2, 0, 6, 4, 0, 6));
+	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 7, 5, 3, 2, 6, 0, 4, 6, 0));
 	ASSERT_THAT(nonterm_data, ::testing::ElementsAre(1, 1, 1, 1, 1, 0.5, 0.5, 1, 0.5, 0.5));
 
 	thrust::host_vector<float> final_state = s.final_state;
@@ -109,8 +109,8 @@ TEST(solver, toy)
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
-								 nonzero_indices.begin(), thrust::identity<float>());
+								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
 	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
@@ -165,7 +165,7 @@ TEST(solver, toy2)
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
-	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 3, 4));
+	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
 	ASSERT_THAT(nonterm_data, ::testing::Each(::testing::Eq(1.f)));
 
 	thrust::host_vector<float> final_state = s.final_state;
@@ -174,8 +174,8 @@ TEST(solver, toy2)
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
-								 nonzero_indices.begin(), thrust::identity<float>());
+								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
 	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
@@ -239,8 +239,8 @@ TEST(solver, toy3)
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
-								 nonzero_indices.begin(), thrust::identity<float>());
+								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
 	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
@@ -263,13 +263,9 @@ TEST(solver, kras)
 
 	table.construct_table();
 
-	std::cout << "after table" << std::endl;
-
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
-
-	std::cout << "after graph" << std::endl;
 
 	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
 
@@ -312,13 +308,9 @@ TEST(solver, cohen)
 
 	table.construct_table();
 
-	std::cout << "after table" << std::endl;
-
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
-
-	std::cout << "after graph" << std::endl;
 
 	initial_state st(
 		model.nodes,
@@ -408,13 +400,9 @@ TEST(solver, mammal)
 
 	table.construct_table();
 
-	std::cout << "after table" << std::endl;
-
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
-
-	std::cout << "after graph" << std::endl;
 
 	initial_state st(model.nodes, { "CycE", "CycA", "CycB", "Cdh1", "Rb_b1", "Rb_b2", "p27_b1", "p27_b2" },
 					 { false, false, false, true, true, true, true, true }, 1.f);
@@ -510,13 +498,10 @@ TEST(solver, mammal)
 		ASSERT_EQ(nonzero_indices[i], expected_indices[i]);
 	}
 
-	// I have hard time finding the right comparing function
-	ASSERT_THAT(nonzero_data[0], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[0]));
-	ASSERT_THAT(nonzero_data[1], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[1]));
-	ASSERT_THAT(nonzero_data[100], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[100]));
-	ASSERT_THAT(nonzero_data[200], ::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs[200]));
-	ASSERT_THAT(nonzero_data.back(),
-				::testing::FloatNear(std::numeric_limits<float>::epsilon(), expected_probs.back()));
+	for (index_t i = 0; i < nonzero_indices.size(); i++)
+	{
+		ASSERT_NEAR(nonzero_data[i], expected_probs[i], 0.001f);
+	}
 }
 
 TEST(rates, toy)
@@ -540,7 +525,7 @@ TEST(rates, toy)
 	initial_state st(model.nodes);
 
 	transition_rates r(model);
-	r.generate_uniform({}, { { "C", 2 } });
+	r.generate_uniform({}, { { "C", 2.f } });
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -552,8 +537,8 @@ TEST(rates, toy)
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>(final_state.size()), final_state.begin(),
-								 nonzero_indices.begin(), thrust::identity<float>());
+								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
 	nonzero_indices.resize(i_end - nonzero_indices.begin());
 
 	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),

@@ -1,53 +1,37 @@
-// Copyright (c) 2015, The Regents of the University of California (Regents)
-// See LICENSE.txt for license details
+#pragma once
 
-#ifndef TIMER_H_
-#define TIMER_H_
+#include <chrono>
 
-#include <sys/time.h>
+class Timer
+{
+public:
+	Timer() {}
 
+	void Start() { start_time_ = std::chrono::system_clock::now(); }
 
-/*
-GAP Benchmark Suite
-Class:  Timer
-Author: Scott Beamer
+	void Stop() { end_time_ = std::chrono::system_clock::now(); }
 
-Simple timer that wraps gettimeofday
-*/
+	double Seconds() const { return std::chrono::duration_cast<std::chrono::seconds>(end_time_ - start_time_).count(); }
 
+	double Millisecs() const
+	{
+		return std::chrono::duration_cast<std::chrono::milliseconds>(end_time_ - start_time_).count();
+	}
 
-class Timer {
- public:
-  Timer() {}
+	double Microsecs() const
+	{
+		return std::chrono::duration_cast<std::chrono::microseconds>(end_time_ - start_time_).count();
+	}
 
-  void Start() {
-    gettimeofday(&start_time_, NULL);
-  }
-
-  void Stop() {
-    gettimeofday(&elapsed_time_, NULL);
-    elapsed_time_.tv_sec  -= start_time_.tv_sec;
-    elapsed_time_.tv_usec -= start_time_.tv_usec;
-  }
-
-  double Seconds() const {
-    return elapsed_time_.tv_sec + (double)elapsed_time_.tv_usec/1e6;
-  }
-
-  double Millisecs() const {
-    return 1000*elapsed_time_.tv_sec + (double)elapsed_time_.tv_usec/1000;
-  }
-
-  double Microsecs() const {
-    return 1e6*elapsed_time_.tv_sec + (double)elapsed_time_.tv_usec;
-  }
-
- private:
-  struct timeval start_time_;
-  struct timeval elapsed_time_;
+private:
+	std::chrono::time_point<std::chrono::system_clock> start_time_;
+	std::chrono::time_point<std::chrono::system_clock> end_time_;
 };
 
 // Times op's execution using the timer t
-#define TIME_OP(t, op) { t.Start(); (op); t.Stop(); }
-
-#endif  // TIMER_H_
+#define TIME_OP(t, op)                                                                                                 \
+	{                                                                                                                  \
+		t.Start();                                                                                                     \
+		(op);                                                                                                          \
+		t.Stop();                                                                                                      \
+	}

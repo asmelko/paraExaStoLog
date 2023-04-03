@@ -26,7 +26,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	int* d_mark;
 	CUDA_SAFE_CALL(cudaMalloc((void**)&d_mark, m * sizeof(int)));
 	CUDA_SAFE_CALL(cudaMemset(d_mark, 0, m * sizeof(int)));
-	printf("Start solving SCC detection...\n");
+	// printf("Start solving SCC detection...\n");
 	CUDA_SAFE_CALL(cudaDeviceSynchronize());
 
 	t.Start();
@@ -41,7 +41,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 			if (is_trimmed(h_status[i]))
 				num_trimmed++;
 		}
-		printf("%d vertices trimmed in the first trimming\n", num_trimmed);
+		// printf("%d vertices trimmed in the first trimming\n", num_trimmed);
 	}
 	//
 	int source = -1;
@@ -49,7 +49,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	{
 		if (!is_removed(h_status[i]))
 		{
-			printf("Vertex %d not eliminated, set as the first pivot\n", i);
+			// printf("Vertex %d not eliminated, set as the first pivot\n", i);
 			source = i;
 			break;
 		}
@@ -59,7 +59,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 	{
 		CUDA_SAFE_CALL(cudaMemset(&d_status[source], 19, 1));
 		// phase-1
-		printf("Start phase-1...\t");
+		// printf("Start phase-1...\t");
 		has_pivot = false;
 		// fwd_reach(m, d_out_row_offsets, d_out_column_indices, d_colors, d_status, d_scc_root);
 		// bwd_reach(m, d_in_row_offsets, d_in_column_indices, d_colors, d_status);
@@ -68,7 +68,7 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 		iterative_trim(m, in_row_offsets, in_column_indices, out_row_offsets, out_column_indices, d_colors, d_status,
 					   d_scc_root);
 		update_colors(m, d_colors, d_status);
-		printf("Done\n");
+		// printf("Done\n");
 		CUDA_SAFE_CALL(cudaMemcpy(h_status, d_status, sizeof(unsigned char) * m, cudaMemcpyDeviceToHost));
 		find_removed_vertices(m, d_status, d_mark);
 		int num_removed = thrust::reduce(thrust::device, d_mark, d_mark + m, 0, thrust::plus<int>());
@@ -90,18 +90,18 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 
 		if (num_removed != m)
 		{
-			printf("Start Trim2...\t\t");
+			// printf("Start Trim2...\t\t");
 			trim2(m, in_row_offsets, in_column_indices, out_row_offsets, out_column_indices, d_colors, d_status,
 				  d_scc_root);
-			printf("Done\n");
+			// printf("Done\n");
 			unsigned min_color = thrust::reduce(thrust::device, d_colors, d_colors + m, 0, thrust::maximum<unsigned>());
-			printf("Start finding WCC...\t");
+			// printf("Start finding WCC...\t");
 			has_pivot = find_wcc(m, out_row_offsets, out_column_indices, d_colors, d_status, d_scc_root, min_color);
-			printf("Done\n");
-			// printf("min_color=%d\n", min_color);
+			// printf("Done\n");
+			//  printf("min_color=%d\n", min_color);
 
-			printf("Start phase-2...\t");
-			// phase-2
+			// printf("Start phase-2...\t");
+			//  phase-2
 			while (has_pivot)
 			{
 				++iter;
@@ -114,16 +114,16 @@ void SCCSolver(int m, int nnz, const int* in_row_offsets, const int* in_column_i
 				CUDA_SAFE_CALL(cudaMemset(d_locks, 0, (PIVOT_HASH_CONST + 1) * sizeof(unsigned)));
 				has_pivot = update(m, d_colors, d_status, d_locks, d_scc_root);
 			}
-			printf("Done\n");
+			// printf("Done\n");
 		}
 		CUDA_SAFE_CALL(cudaDeviceSynchronize());
 	}
 	t.Stop();
 
 	CUDA_SAFE_CALL(cudaMemcpy(h_status, d_status, sizeof(unsigned char) * m, cudaMemcpyDeviceToHost));
-	print_statistics(m, d_scc_root, h_status);
-	printf("\titerations = %d.\n", iter);
-	printf("\truntime [%s] = %f ms.\n", SCC_VARIANT, t.Millisecs());
+	// print_statistics(m, d_scc_root, h_status);
+	// printf("\titerations = %d.\n", iter);
+	// printf("\truntime [%s] = %f ms.\n", SCC_VARIANT, t.Millisecs());
 	CUDA_SAFE_CALL(cudaFree(d_status));
 	CUDA_SAFE_CALL(cudaFree(d_locks));
 	CUDA_SAFE_CALL(cudaFree(d_colors));

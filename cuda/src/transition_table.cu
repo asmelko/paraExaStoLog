@@ -54,6 +54,14 @@ struct var_trans_ftor : public thrust::unary_function<thrust::tuple<index_t, boo
 	}
 };
 
+struct flip_ftor : public thrust::unary_function<index_t, index_t>
+{
+	index_t mask;
+
+	flip_ftor(index_t mask) : mask(mask) {}
+	__host__ __device__ index_t operator()(index_t x) const { return x ^ mask; }
+};
+
 d_idxvec transition_table::construct_transition_vector(const std::vector<index_t>& free_nodes, size_t fixed_val)
 {
 	auto c_b = thrust::make_counting_iterator(0);
@@ -97,14 +105,6 @@ std::pair<d_idxvec, d_idxvec> transition_table::generate_transitions(const std::
 
 	return std::make_pair(std::move(up_transition), std::move(down_transition));
 }
-
-struct flip_ftor : public thrust::unary_function<index_t, index_t>
-{
-	index_t mask;
-
-	flip_ftor(index_t mask) : mask(mask) {}
-	__host__ __device__ index_t operator()(index_t x) const { return x ^ mask; }
-};
 
 void transition_table::construct_table()
 {

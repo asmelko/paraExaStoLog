@@ -35,8 +35,7 @@ class model_builder
 {
 	boolstuff::BoolExprParser parser_;
 
-	std::vector<clause_t> construct_clauses(const std::string& target, const std::string& factors,
-											const std::vector<std::string>& targets);
+	std::vector<clause_t> construct_clauses(const std::string& factors, const std::vector<std::string>& targets);
 
 public:
 	model_t construct_model(const std::string& file);
