@@ -4,23 +4,23 @@
 #include "transition_table.h"
 #include "utils.h"
 
-struct const_transform_ftor : public thrust::unary_function<float, void>
+struct const_transform_ftor : public thrust::unary_function<real_t, void>
 {
-	float value;
+	real_t value;
 
-	const_transform_ftor(float value) : value(value) {}
+	const_transform_ftor(real_t value) : value(value) {}
 
-	__host__ __device__ void operator()(float& x) const { x = value; }
+	__host__ __device__ void operator()(real_t& x) const { x = value; }
 };
 
 initial_state::initial_state(const std::vector<std::string>& node_names,
 							 const std::vector<std::string>& fixed_node_names,
-							 const std::vector<bool>& fixed_node_values, float fixed_probability)
+							 const std::vector<bool>& fixed_node_values, real_t fixed_probability)
 
 {
 	if (fixed_node_names.empty())
 	{
-		state = thrust::device_vector<float>(1ULL << node_names.size(), 1.f / (1ULL << node_names.size()));
+		state = d_datvec(1ULL << node_names.size(), 1.f / (1ULL << node_names.size()));
 
 		return;
 	}
@@ -58,9 +58,9 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 	size_t fixed_states = fixed_indices.size();
 	size_t nonfixed_states = (1ULL << node_names.size()) - fixed_indices.size();
 
-	state = thrust::device_vector<float>(fixed_states + nonfixed_states, (1.f - fixed_probability) / nonfixed_states);
+	state = d_datvec(fixed_states + nonfixed_states, (1.f - fixed_probability) / nonfixed_states);
 
 	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
 					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
-					 const_transform_ftor(fixed_probability / (float)fixed_states));
+					 const_transform_ftor(fixed_probability / (real_t)fixed_states));
 }

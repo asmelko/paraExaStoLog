@@ -25,8 +25,8 @@ host_sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, h_idxvec&& ind
 	auto orig_n = indptr.size() - 1;
 	auto nnz = rows.size();
 
-	thrust::host_vector<index_t> big_rows(nnz);
-	thrust::host_vector<index_t> map;
+	h_idxvec big_rows(nnz);
+	h_idxvec map;
 
 	// modify
 	{
@@ -135,49 +135,47 @@ std::vector<host_sparse_csr_matrix> lu_big_nnz(cusolverSpHandle_t handle, index_
 											   const d_idxvec& A_indptr, const d_idxvec& A_indices,
 											   const d_datvec& A_data, d_idxvec& As_indptr)
 {
-	thrust::host_vector<index_t> indptr = A_indptr;
-	thrust::host_vector<index_t> indices = A_indices;
-	thrust::host_vector<real_t> data = A_data;
+	h_idxvec indptr = A_indptr;
+	h_idxvec indices = A_indices;
+	h_datvec data = A_data;
 
 	std::vector<host_sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	thrust::for_each(
-		thrust::host, thrust::make_counting_iterator<index_t>(big_scc_start),
-		thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
-			const index_t scc_offset = scc_offsets[i];
-			const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
+	thrust::for_each(thrust::host, thrust::make_counting_iterator<index_t>(big_scc_start),
+					 thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
+						 const index_t scc_offset = scc_offsets[i];
+						 const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
 
-			// create indptr
-			thrust::host_vector<index_t> scc_indptr(indptr.begin() + scc_offset,
-													indptr.begin() + scc_offset + scc_size + 1);
-			const index_t base = scc_indptr[0];
-			thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
-							  [base](index_t x) { return x - base; });
+						 // create indptr
+						 h_idxvec scc_indptr(indptr.begin() + scc_offset, indptr.begin() + scc_offset + scc_size + 1);
+						 const index_t base = scc_indptr[0];
+						 thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+										   [base](index_t x) { return x - base; });
 
-			const index_t scc_nnz = scc_indptr.back();
+						 const index_t scc_nnz = scc_indptr.back();
 
-			thrust::host_vector<index_t> scc_indices(indices.begin() + base, indices.begin() + base + scc_nnz);
-			thrust::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
-							  [scc_offset](index_t x) { return x - scc_offset; });
+						 h_idxvec scc_indices(indices.begin() + base, indices.begin() + base + scc_nnz);
+						 thrust::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+										   [scc_offset](index_t x) { return x - scc_offset; });
 
-			thrust::host_vector<real_t> scc_data(data.begin() + base, data.begin() + base + scc_nnz);
+						 h_datvec scc_data(data.begin() + base, data.begin() + base + scc_nnz);
 
 
-			host_sparse_csr_matrix M =
-				host_lu_wrapper(handle, std::move(scc_indptr), std::move(scc_indices), std::move(scc_data));
+						 host_sparse_csr_matrix M = host_lu_wrapper(handle, std::move(scc_indptr),
+																	std::move(scc_indices), std::move(scc_data));
 
-			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
-							  [scc_offset](index_t x) { return x + scc_offset; });
+						 thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
+										   [scc_offset](index_t x) { return x + scc_offset; });
 
-			thrust::host_vector<index_t> sizes(scc_size);
-			thrust::adjacent_difference(M.indptr.begin() + 1, M.indptr.end(), sizes.begin());
+						 h_idxvec sizes(scc_size);
+						 thrust::adjacent_difference(M.indptr.begin() + 1, M.indptr.end(), sizes.begin());
 
-			CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(), sizeof(index_t) * scc_size,
-								  cudaMemcpyHostToDevice));
+						 CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(),
+											   sizeof(index_t) * scc_size, cudaMemcpyHostToDevice));
 
-			lu_vec.emplace_back(std::move(M));
-		});
+						 lu_vec.emplace_back(std::move(M));
+					 });
 
 	return lu_vec;
 }
@@ -266,7 +264,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	bsrsv2Info_t info_U = 0;
 	int pBufferSize_L;
 	int pBufferSize_U;
-	const float alpha = 1.;
+	const real_t alpha = 1.;
 	const cusparseSolvePolicy_t policy_L = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
 	const cusparseSolvePolicy_t policy_U = CUSPARSE_SOLVE_POLICY_USE_LEVEL;
 	const cusparseOperation_t trans_L = CUSPARSE_OPERATION_NON_TRANSPOSE;
@@ -309,18 +307,18 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 
 	sparse_csr_matrix X;
 
-	thrust::host_vector<index_t> hb_indptr = B.indptr;
-	thrust::host_vector<index_t> hb_indices = B.indices;
+	h_idxvec hb_indptr = B.indptr;
+	h_idxvec hb_indices = B.indices;
 
-	thrust::device_vector<float> x_vec(n);
-	thrust::device_vector<float> z_vec(n);
+	d_datvec x_vec(n);
+	d_datvec z_vec(n);
 
-	thrust::host_vector<index_t> hx_indptr(B.indptr.size());
+	h_idxvec hx_indptr(B.indptr.size());
 	hx_indptr[0] = 0;
 
 	for (int b_idx = 0; b_idx < B.indptr.size() - 1; b_idx++)
 	{
-		thrust::device_vector<float> b_vec(n, 0.f);
+		d_datvec b_vec(n, 0.f);
 		auto start = hb_indptr[b_idx];
 		auto end = hb_indptr[b_idx + 1];
 		thrust::copy(B.data.begin() + start, B.data.begin() + end,
@@ -338,7 +336,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 											 policy_U, buffer_U.data().get()));
 
 
-		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(float x) { return x != 0.f; });
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(real_t x) { return x != 0.f; });
 
 		auto size_before = X.indices.size();
 		X.indices.resize(X.indices.size() + x_nnz);
@@ -349,7 +347,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 		thrust::copy_if(thrust::make_zip_iterator(x_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
 						thrust::make_zip_iterator(x_vec.end(), thrust::make_counting_iterator<index_t>(x_vec.size())),
 						thrust::make_zip_iterator(X.data.begin() + size_before, X.indices.begin() + size_before),
-						[] __device__(thrust::tuple<float, index_t> x) { return thrust::get<0>(x) != 0.f; });
+						[] __device__(thrust::tuple<real_t, index_t> x) { return thrust::get<0>(x) != 0.f; });
 	}
 
 	X.indptr = hx_indptr;

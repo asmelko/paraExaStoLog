@@ -55,7 +55,7 @@ d_idxvec transition_graph::compute_sccs()
 			out_offsets.data().get(), out_indices.data().get(), CUDA_R_32F, CUSPARSE_ACTION_SYMBOLIC,
 			CUSPARSE_INDEX_BASE_ZERO, CUSPARSE_CSR2CSC_ALG1, &buffersize));
 
-		thrust::device_vector<float> dummy(nnz);
+		d_datvec dummy(nnz);
 
 		thrust::device_vector<char> buffer(buffersize);
 		CHECK_CUSPARSE(cusparseCsr2cscEx2(

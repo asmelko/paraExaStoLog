@@ -16,8 +16,8 @@ TEST(trans_table, toy)
 
 	table.construct_table();
 
-	thrust::host_vector<index_t> indptr = table.indptr;
-	thrust::host_vector<index_t> indices = table.cols;
+	h_idxvec indptr = table.indptr;
+	h_idxvec indices = table.cols;
 
 	ASSERT_THAT(indptr, ::testing::ElementsAre(0, 2, 2, 2, 3, 3, 4, 6, 8));
 	ASSERT_THAT(indices, ::testing::ElementsAre(0, 0, 3, 5, 6, 6, 7, 7));
@@ -38,8 +38,8 @@ TEST(trans_graph, toy)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	h_idxvec vertices = g.reordered_vertices;
+	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -72,8 +72,8 @@ TEST(solver, toy)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	h_idxvec vertices = g.reordered_vertices;
+	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(1, 2, 4, 7, 6, 5, 3, 0));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
@@ -87,16 +87,16 @@ TEST(solver, toy)
 
 	s.solve();
 
-	thrust::host_vector<index_t> term_indptr = s.term_indptr;
-	thrust::host_vector<index_t> term_rows = s.term_rows;
+	h_idxvec term_indptr = s.term_indptr;
+	h_idxvec term_rows = s.term_rows;
 	thrust::host_vector<float> term_data = s.term_data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(1, 2, 4));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1)));
 
-	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
-	thrust::host_vector<index_t> nonterm_cols = s.nonterm_cols;
+	h_idxvec nonterm_indptr = s.nonterm_indptr;
+	h_idxvec nonterm_cols = s.nonterm_cols;
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
@@ -105,7 +105,7 @@ TEST(solver, toy)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	h_idxvec nonzero_indices(final_state.size());
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
@@ -137,8 +137,8 @@ TEST(solver, toy2)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	h_idxvec vertices = g.reordered_vertices;
+	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
@@ -152,16 +152,16 @@ TEST(solver, toy2)
 
 	s.solve();
 
-	thrust::host_vector<index_t> term_indptr = s.term_indptr;
-	thrust::host_vector<index_t> term_rows = s.term_rows;
+	h_idxvec term_indptr = s.term_indptr;
+	h_idxvec term_rows = s.term_rows;
 	thrust::host_vector<float> term_data = s.term_data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 6));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 
-	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
-	thrust::host_vector<index_t> nonterm_cols = s.nonterm_cols;
+	h_idxvec nonterm_indptr = s.nonterm_indptr;
+	h_idxvec nonterm_cols = s.nonterm_cols;
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
@@ -170,7 +170,7 @@ TEST(solver, toy2)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	h_idxvec nonzero_indices(final_state.size());
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
@@ -202,8 +202,8 @@ TEST(solver, toy3)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	h_idxvec vertices = g.reordered_vertices;
+	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	ASSERT_THAT(vertices, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
@@ -217,16 +217,16 @@ TEST(solver, toy3)
 
 	s.solve();
 
-	thrust::host_vector<index_t> term_indptr = s.term_indptr;
-	thrust::host_vector<index_t> term_rows = s.term_rows;
+	h_idxvec term_indptr = s.term_indptr;
+	h_idxvec term_rows = s.term_rows;
 	thrust::host_vector<float> term_data = s.term_data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 4));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 4.f)));
 
-	thrust::host_vector<index_t> nonterm_indptr = s.nonterm_indptr;
-	thrust::host_vector<index_t> nonterm_cols = s.nonterm_cols;
+	h_idxvec nonterm_indptr = s.nonterm_indptr;
+	h_idxvec nonterm_cols = s.nonterm_cols;
 	thrust::host_vector<float> nonterm_data = s.nonterm_data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4));
@@ -235,7 +235,7 @@ TEST(solver, toy3)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	h_idxvec nonzero_indices(final_state.size());
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
@@ -280,7 +280,7 @@ TEST(solver, kras)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(n);
+	h_idxvec nonzero_indices(n);
 	thrust::host_vector<float> nonzero_data(n);
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
 								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
@@ -328,7 +328,7 @@ TEST(solver, cohen)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(n);
+	h_idxvec nonzero_indices(n);
 	thrust::host_vector<float> nonzero_data(n);
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
 								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
@@ -373,7 +373,7 @@ TEST(solver, zanudo)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(n);
+	h_idxvec nonzero_indices(n);
 	thrust::host_vector<float> nonzero_data(n);
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
 								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
@@ -418,7 +418,7 @@ TEST(solver, mammal)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(n);
+	h_idxvec nonzero_indices(n);
 	thrust::host_vector<float> nonzero_data(n);
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
 								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
@@ -519,8 +519,8 @@ TEST(rates, toy)
 
 	g.find_terminals();
 
-	thrust::host_vector<index_t> vertices = g.reordered_vertices;
-	thrust::host_vector<index_t> offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	h_idxvec vertices = g.reordered_vertices;
+	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	initial_state st(model.nodes);
 
@@ -533,7 +533,7 @@ TEST(rates, toy)
 
 	thrust::host_vector<float> final_state = s.final_state;
 
-	thrust::host_vector<index_t> nonzero_indices(final_state.size());
+	h_idxvec nonzero_indices(final_state.size());
 	thrust::host_vector<float> nonzero_data(final_state.size());
 
 	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),

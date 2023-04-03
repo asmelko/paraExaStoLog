@@ -12,13 +12,13 @@
 class solver
 {
 	cu_context& context_;
-	thrust::device_vector<float> initial_state_;
+	d_datvec initial_state_;
 
 	const d_idxvec &rows_, &cols_; // COO
 	const d_idxvec& indptr_;	   // CSC
 
 	d_idxvec ordered_vertices_;
-	thrust::host_vector<index_t> terminals_offsets_;
+	h_idxvec terminals_offsets_;
 	d_idxvec nonterminals_offsets_;
 
 	d_datvec rates_;
@@ -27,12 +27,12 @@ class solver
 
 public:
 	d_idxvec term_indptr, term_rows;
-	thrust::device_vector<float> term_data;
+	d_datvec term_data;
 
 	d_idxvec nonterm_indptr, nonterm_cols;
-	thrust::device_vector<float> nonterm_data;
+	d_datvec nonterm_data;
 
-	thrust::device_vector<float> final_state;
+	d_datvec final_state;
 
 	solver(cu_context& context, const transition_table& t, transition_graph g, transition_rates r, initial_state s);
 

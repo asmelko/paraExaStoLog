@@ -64,14 +64,14 @@ void coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& rows, d_idxvec& cols,
 sparse_csc_matrix coo2csc(cusparseHandle_t handle, sparse_coo_matrix& coo);
 
 // Sparse matrix multiplication
-sparse_csr_matrix matmul(cusparseHandle_t handle, index_t* lhs_indptr, index_t* lhs_indices, float* lhs_data,
+sparse_csr_matrix matmul(cusparseHandle_t handle, index_t* lhs_indptr, index_t* lhs_indices, real_t* lhs_data,
 						 index_t lhs_rows, index_t lhs_cols, index_t lhs_nnz, index_t* rhs_indptr, index_t* rhs_indices,
-						 float* rhs_data, index_t rhs_rows, index_t rhs_cols, index_t rhs_nnz);
+						 real_t* rhs_data, index_t rhs_rows, index_t rhs_cols, index_t rhs_nnz);
 sparse_csr_matrix matmul(cusparseHandle_t handle, const sparse_csr_matrix& lhs, const sparse_csr_matrix& rhs);
 
 // CSC=>CSR & CSR=>CSC
 void transpose_sparse_matrix(cusparseHandle_t handle, const index_t* in_indptr, const index_t* in_indices,
-							 const float* in_data, index_t in_n, index_t out_n, index_t nnz, d_idxvec& out_indptr,
+							 const real_t* in_data, index_t in_n, index_t out_n, index_t nnz, d_idxvec& out_indptr,
 							 d_idxvec& out_indices, d_datvec& out_data);
 sparse_csc_matrix csr2csc(cusparseHandle_t handle, const sparse_csr_matrix& in, index_t in_n, index_t out_n,
 						  index_t nnz);

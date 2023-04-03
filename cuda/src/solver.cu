@@ -15,8 +15,7 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  rates_(std::move(r.rates)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
 {
-	terminals_offsets_ =
-		thrust::host_vector<index_t>(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
+	terminals_offsets_ = h_idxvec(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	nonterminals_offsets_.assign(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
 }
@@ -130,7 +129,9 @@ void solver::break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_m
 	auto part_point = thrust::stable_partition(
 		thrust::make_zip_iterator(NB_decomp_indptr.begin(), NB.indices.begin(), NB.data.begin()),
 		thrust::make_zip_iterator(NB_decomp_indptr.end(), NB.indices.end(), NB.data.end()),
-		[point = nonterm_n] __device__(thrust::tuple<index_t, index_t, float> x) { return thrust::get<1>(x) < point; });
+		[point = nonterm_n] __device__(thrust::tuple<index_t, index_t, real_t> x) {
+			return thrust::get<1>(x) < point;
+		});
 
 	auto N_size = thrust::get<0>(part_point.get_iterator_tuple()) - NB_decomp_indptr.begin();
 
@@ -167,7 +168,7 @@ void solver::solve_nonterminal_part()
 	{
 		nonterm_indptr = term_indptr;
 		nonterm_cols = term_rows;
-		nonterm_data = thrust::device_vector<float>(term_rows.size(), 1.f);
+		nonterm_data = d_datvec(term_rows.size(), 1.f);
 
 		return;
 	}
@@ -234,7 +235,7 @@ void solver::solve_nonterminal_part()
 
 
 	// -U back to U
-	thrust::transform(U.data.begin(), U.data.end(), U.data.begin(), thrust::negate<float>());
+	thrust::transform(U.data.begin(), U.data.end(), U.data.begin(), thrust::negate<real_t>());
 
 	// nonterminal vertices from 0, ..., n_nt to actual indices
 	{
