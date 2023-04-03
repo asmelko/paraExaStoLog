@@ -15,7 +15,7 @@ std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t
 		if (rate.second < 0)
 			throw std::runtime_error("transition rate must be non-negative");
 
-		rates[std::distance(it, model_.nodes.begin())] = rate.second;
+		rates[std::distance(model_.nodes.begin(), it)] = rate.second;
 	}
 
 	return rates;
