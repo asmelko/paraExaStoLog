@@ -28,11 +28,8 @@ class solver
 	d_idxvec submatrix_vertex_mapping_;
 
 public:
-	d_idxvec term_indptr, term_rows;
-	d_datvec term_data;
-
-	d_idxvec nonterm_indptr, nonterm_cols;
-	d_datvec nonterm_data;
+	sparse_csc_matrix solution_term;
+	sparse_csr_matrix solution_nonterm;
 
 	d_datvec final_state;
 

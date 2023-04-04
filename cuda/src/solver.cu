@@ -69,11 +69,12 @@ void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_
 
 void solver::solve_terminal_part()
 {
-	term_indptr = terminals_offsets_;
-	term_rows.resize(terminals_offsets_.back());
-	term_data.resize(terminals_offsets_.back());
+	solution_term.indptr = terminals_offsets_;
+	solution_term.indices.resize(terminals_offsets_.back());
+	solution_term.data.resize(terminals_offsets_.back());
 
-	thrust::copy(ordered_vertices_.begin(), ordered_vertices_.begin() + terminals_offsets_.back(), term_rows.begin());
+	thrust::copy(ordered_vertices_.begin(), ordered_vertices_.begin() + terminals_offsets_.back(),
+				 solution_term.indices.begin());
 
 	for (size_t terminal_scc_idx = 1; terminal_scc_idx < terminals_offsets_.size(); terminal_scc_idx++)
 	{
@@ -81,7 +82,7 @@ void solver::solve_terminal_part()
 
 		if (scc_size == 1)
 		{
-			term_data[terminals_offsets_[terminal_scc_idx - 1]] = 1;
+			solution_term.data[terminals_offsets_[terminal_scc_idx - 1]] = 1;
 			continue;
 		}
 
@@ -107,7 +108,8 @@ void solver::solve_terminal_part()
 		thrust::device_vector<double> minors = h_minors;
 		auto sum = thrust::reduce(minors.begin(), minors.end(), 0., thrust::plus<double>());
 
-		thrust::transform(minors.begin(), minors.end(), term_data.begin() + terminals_offsets_[terminal_scc_idx - 1],
+		thrust::transform(minors.begin(), minors.end(),
+						  solution_term.data.begin() + terminals_offsets_[terminal_scc_idx - 1],
 						  [sum] __device__(double x) { return x / sum; });
 	}
 }
@@ -164,9 +166,9 @@ void solver::solve_nonterminal_part()
 
 	if (nonterminal_vertices_n == 0)
 	{
-		nonterm_indptr = term_indptr;
-		nonterm_cols = term_rows;
-		nonterm_data = d_datvec(term_rows.size(), 1.f);
+		solution_nonterm.indptr = solution_term.indptr;
+		solution_nonterm.indices = solution_term.indices;
+		solution_nonterm.data = d_datvec(solution_term.nnz(), 1.f);
 
 		return;
 	}
@@ -174,8 +176,8 @@ void solver::solve_nonterminal_part()
 	// -U
 	sparse_csr_matrix U;
 	{
-		U.indptr = term_indptr;
-		U.indices.resize(term_rows.size());
+		U.indptr = solution_term.indptr;
+		U.indices.resize(solution_term.nnz());
 
 		thrust::copy(thrust::make_counting_iterator<intptr_t>(0),
 					 thrust::make_counting_iterator<intptr_t>(terminal_vertices_n),
@@ -185,7 +187,7 @@ void solver::solve_nonterminal_part()
 						  U.indices.begin(),
 						  [map = submatrix_vertex_mapping_.data().get()] __device__(index_t x) { return map[x]; });
 
-		U.data.assign(term_rows.size(), -1.f);
+		U.data.assign(solution_term.nnz(), -1.f);
 	}
 
 	// NB
@@ -221,14 +223,14 @@ void solver::solve_nonterminal_part()
 
 	sparse_csr_matrix X = solve_system(context_, sparse_cast<cs_kind::CSR>(std::move(N)), nonterminals_offsets_, A);
 
-	nonterm_indptr.resize(U.indptr.size());
+	solution_nonterm.indptr.resize(U.indptr.size());
 	index_t nonterm_nnz = U.indptr.back() + X.indptr.back();
-	nonterm_cols.resize(nonterm_nnz);
-	nonterm_data.resize(nonterm_nnz);
+	solution_nonterm.indices.resize(nonterm_nnz);
+	solution_nonterm.data.resize(nonterm_nnz);
 
 	thrust::transform(
 		thrust::make_zip_iterator(U.indptr.begin(), X.indptr.begin()),
-		thrust::make_zip_iterator(U.indptr.end(), X.indptr.end()), nonterm_indptr.begin(),
+		thrust::make_zip_iterator(U.indptr.end(), X.indptr.end()), solution_nonterm.indptr.begin(),
 		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) + thrust::get<1>(x); });
 
 
@@ -246,9 +248,10 @@ void solver::solve_nonterminal_part()
 
 	// hstack(U,X)
 	{
-		run_hstack(nonterm_indptr.data().get(), nonterm_cols.data().get(), nonterm_data.data().get(),
-				   U.indptr.data().get(), X.indptr.data().get(), term_rows.data().get(), X.indices.data().get(),
-				   U.data.data().get(), X.data.data().get(), nonterm_indptr.size() - 1);
+		run_hstack(solution_nonterm.indptr.data().get(), solution_nonterm.indices.data().get(),
+				   solution_nonterm.data.data().get(), U.indptr.data().get(), X.indptr.data().get(),
+				   solution_term.indices.data().get(), X.indices.data().get(), U.data.data().get(),
+				   X.data.data().get(), solution_nonterm.indptr.size() - 1);
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	}
@@ -256,11 +259,12 @@ void solver::solve_nonterminal_part()
 
 void solver::compute_final_states()
 {
-	auto y = mvmul(context_.cusparse_handle, nonterm_indptr, nonterm_cols, nonterm_data, cs_kind::CSR,
-				   terminals_offsets_.size() - 1, ordered_vertices_.size(), initial_state_);
+	auto y =
+		mvmul(context_.cusparse_handle, solution_nonterm.indptr, solution_nonterm.indices, solution_nonterm.data,
+			  cs_kind::CSR, terminals_offsets_.size() - 1, ordered_vertices_.size(), initial_state_);
 
-	final_state = mvmul(context_.cusparse_handle, term_indptr, term_rows, term_data, cs_kind::CSC,
-						ordered_vertices_.size(), terminals_offsets_.size() - 1, y);
+	final_state = mvmul(context_.cusparse_handle, solution_term.indptr, solution_term.indices, solution_term.data,
+						cs_kind::CSC, ordered_vertices_.size(), terminals_offsets_.size() - 1, y);
 }
 
 void solver::solve()

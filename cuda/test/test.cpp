@@ -87,17 +87,17 @@ TEST(solver, toy)
 
 	s.solve();
 
-	h_idxvec term_indptr = s.term_indptr;
-	h_idxvec term_rows = s.term_rows;
-	thrust::host_vector<float> term_data = s.term_data;
+	h_idxvec term_indptr = s.solution_term.indptr;
+	h_idxvec term_rows = s.solution_term.indices;
+	thrust::host_vector<float> term_data = s.solution_term.data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(1, 2, 4));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1)));
 
-	h_idxvec nonterm_indptr = s.nonterm_indptr;
-	h_idxvec nonterm_cols = s.nonterm_cols;
-	thrust::host_vector<float> nonterm_data = s.nonterm_data;
+	h_idxvec nonterm_indptr = s.solution_nonterm.indptr;
+	h_idxvec nonterm_cols = s.solution_nonterm.indices;
+	thrust::host_vector<float> nonterm_data = s.solution_nonterm.data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4, 7, 10));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(1, 7, 5, 3, 2, 6, 0, 4, 6, 0));
@@ -152,17 +152,17 @@ TEST(solver, toy2)
 
 	s.solve();
 
-	h_idxvec term_indptr = s.term_indptr;
-	h_idxvec term_rows = s.term_rows;
-	thrust::host_vector<float> term_data = s.term_data;
+	h_idxvec term_indptr = s.solution_term.indptr;
+	h_idxvec term_rows = s.solution_term.indices;
+	thrust::host_vector<float> term_data = s.solution_term.data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 6));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 5, 6, 7));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 6.f)));
 
-	h_idxvec nonterm_indptr = s.nonterm_indptr;
-	h_idxvec nonterm_cols = s.nonterm_cols;
-	thrust::host_vector<float> nonterm_data = s.nonterm_data;
+	h_idxvec nonterm_indptr = s.solution_nonterm.indptr;
+	h_idxvec nonterm_cols = s.solution_nonterm.indices;
+	thrust::host_vector<float> nonterm_data = s.solution_nonterm.data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 8));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 5, 6, 7, 4, 3));
@@ -217,17 +217,17 @@ TEST(solver, toy3)
 
 	s.solve();
 
-	h_idxvec term_indptr = s.term_indptr;
-	h_idxvec term_rows = s.term_rows;
-	thrust::host_vector<float> term_data = s.term_data;
+	h_idxvec term_indptr = s.solution_term.indptr;
+	h_idxvec term_rows = s.solution_term.indices;
+	thrust::host_vector<float> term_data = s.solution_term.data;
 
 	ASSERT_THAT(term_indptr, ::testing::ElementsAre(0, 4));
 	ASSERT_THAT(term_rows, ::testing::ElementsAre(0, 1, 2, 3));
 	ASSERT_THAT(term_data, ::testing::Each(::testing::Eq(1.f / 4.f)));
 
-	h_idxvec nonterm_indptr = s.nonterm_indptr;
-	h_idxvec nonterm_cols = s.nonterm_cols;
-	thrust::host_vector<float> nonterm_data = s.nonterm_data;
+	h_idxvec nonterm_indptr = s.solution_nonterm.indptr;
+	h_idxvec nonterm_cols = s.solution_nonterm.indices;
+	thrust::host_vector<float> nonterm_data = s.solution_nonterm.data;
 
 	ASSERT_THAT(nonterm_indptr, ::testing::ElementsAre(0, 4));
 	ASSERT_THAT(nonterm_cols, ::testing::ElementsAre(0, 1, 2, 3));
