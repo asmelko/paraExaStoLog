@@ -11,14 +11,14 @@ public:
 
 	void Stop() { end_time_ = std::chrono::system_clock::now(); }
 
-	double Seconds() const { return std::chrono::duration_cast<std::chrono::seconds>(end_time_ - start_time_).count(); }
+	auto Seconds() const { return std::chrono::duration_cast<std::chrono::seconds>(end_time_ - start_time_).count(); }
 
-	double Millisecs() const
+	auto Millisecs() const
 	{
 		return std::chrono::duration_cast<std::chrono::milliseconds>(end_time_ - start_time_).count();
 	}
 
-	double Microsecs() const
+	auto Microsecs() const
 	{
 		return std::chrono::duration_cast<std::chrono::microseconds>(end_time_ - start_time_).count();
 	}

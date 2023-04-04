@@ -95,7 +95,7 @@ persistent_data persistent_solution::deserialize(const std::string& file)
 	size_t* sizes = reinterpret_cast<size_t*>(data);
 
 	if (f.length() < 13 * sizeof(size_t))
-		throw std::runtime_error("error when reading persistent data");
+		throw std::runtime_error("Persistend data file is corrupted");
 
 	d.rows.resize(*sizes++);
 	d.cols.resize(*sizes++);
@@ -113,6 +113,17 @@ persistent_data persistent_solution::deserialize(const std::string& file)
 	d.solution_nonterm.indptr.resize(*sizes++);
 	d.solution_nonterm.indices.resize(*sizes++);
 	d.solution_nonterm.data.resize(*sizes++);
+
+	size_t idx_size = d.rows.size() + d.cols.size() + d.indptr.size() + d.ordered_vertices.size()
+					  + d.terminals_offsets.size() + d.nonterminals_offsets.size() + d.solution_term.indptr.size()
+					  + d.solution_term.indices.size() + d.solution_nonterm.indptr.size()
+					  + d.solution_nonterm.indices.size();
+	size_t real_size = d.rates.size() + d.solution_term.data.size() + d.solution_nonterm.data.size();
+
+	size_t total_size = idx_size * sizeof(index_t) + real_size * sizeof(real_t) + 13 * sizeof(size_t);
+
+	if (f.length() != total_size)
+		throw std::runtime_error("Persistend data file is corrupted");
 
 	index_t* idx_data = reinterpret_cast<index_t*>(sizes);
 
@@ -167,6 +178,41 @@ bool compare(const thrust::device_vector<T>& l, const thrust::device_vector<T>& 
 	thrust::host_vector<T> hr = r;
 
 	return compare(hl, hr);
+}
+
+bool persistent_solution::has_incompatible_zero_rates(const persistent_data& stored, const d_datvec& new_rates)
+{
+	thrust::device_vector<bool> are_compatible(1, true);
+
+	if (stored.rates.size() != new_rates.size())
+		throw std::runtime_error("symbolic data dimensions do not match model dimensions");
+
+	thrust::for_each_n(thrust::make_counting_iterator(0), new_rates.size(),
+					   [old_rates = stored.rates.data().get(), new_rates = new_rates.data().get(),
+						are_compatible = are_compatible.data().get()] __device__(size_t i) {
+						   if ((old_rates[i] == 0.f && new_rates[i] != 0.f)
+							   || (new_rates[i] == 0.f && old_rates[i] != 0.f))
+							   are_compatible[0] = false;
+					   });
+
+	return are_compatible[0];
+}
+
+bool persistent_solution::are_same(const persistent_data& stored, const d_datvec& new_rates)
+{
+	thrust::device_vector<bool> same(1, true);
+
+	if (stored.rates.size() != new_rates.size())
+		throw std::runtime_error("symbolic data dimensions do not match model dimensions");
+
+	thrust::for_each_n(
+		thrust::make_counting_iterator(0), new_rates.size(),
+		[l = stored.rates.data().get(), r = new_rates.data().get(), same = same.data().get()] __device__(size_t i) {
+			if (l[0] != r[0])
+				same[0] = false;
+		});
+
+	return same[0];
 }
 
 bool persistent_solution::check_are_equal(const solver& s, const persistent_data& d)

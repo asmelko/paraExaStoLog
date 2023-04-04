@@ -28,6 +28,10 @@ class solver
 
 	d_idxvec submatrix_vertex_mapping_;
 
+	// for symbolic computation
+	bool symbolic_loaded_;
+	bool should_refactor_;
+
 public:
 	sparse_csc_matrix solution_term;
 	sparse_csr_matrix solution_nonterm;
@@ -35,6 +39,8 @@ public:
 	d_datvec final_state;
 
 	solver(cu_context& context, const transition_table& t, transition_graph g, transition_rates r, initial_state s);
+
+	solver(cu_context& context, persistent_data& persisted, transition_rates r, initial_state s);
 
 	void break_NB(sparse_csc_matrix&& NB, sparse_csc_matrix& N, sparse_csc_matrix& B);
 

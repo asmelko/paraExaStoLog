@@ -1,5 +1,7 @@
+#include <optional>
 #include <string_view>
 
+#include "bpplib/system/filesystem.hpp"
 #include "cli/options.h"
 #include "solver.h"
 
@@ -98,6 +100,49 @@ struct mbas::value_type<fixed_init_arg>
 	}
 };
 
+void compute_no_symbolic(cu_context context, model_t model, initial_state state, transition_rates rates,
+						 std::optional<std::string> serialize_file)
+{
+	// create table
+	transition_table table(context, model);
+	table.construct_table();
+
+	// create graph
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+	g.find_terminals();
+
+	// solve
+	solver s(context, table, std::move(g), std::move(rates), std::move(state));
+	s.solve();
+
+	s.print_final_state(model.nodes);
+
+	if (serialize_file)
+		persistent_solution::serialize(*serialize_file, s);
+}
+
+void compute_symbolic(cu_context context, model_t model, initial_state state, transition_rates rates,
+					  const std::string& serialize_file)
+{
+	auto data = persistent_solution::deserialize(serialize_file);
+
+	// create table
+	transition_table table(context, model);
+	table.construct_table();
+
+	// create graph
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+	g.find_terminals();
+
+	// solve
+	solver s(context, table, std::move(g), std::move(rates), std::move(state));
+	s.solve();
+
+	s.print_final_state(model.nodes);
+
+	persistent_solution::serialize(serialize_file, s);
+}
+
 int main(int argc, char** argv)
 {
 	mbas::command cmd;
@@ -128,8 +173,8 @@ int main(int argc, char** argv)
 
 	// symbolic computation
 	cmd.add_option("s,symbolic",
-				   "Turns on symbolic computation. After the first execution of a bnet file F, F.symb file is created "
-				   "which contains symbolic information of the computation. In the further runs of F, the "
+				   "Turns on symbolic computation. After the first execution of a bnet file F.bnet, F.symb file is "
+				   "created which contains symbolic information of the computation. In the further runs of F.bnet, the "
 				   "program first looks up F.symb and uses it to accelerate the computation.",
 				   true);
 
@@ -141,7 +186,7 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	auto filename = parsed["bnet-file"]->get_value<std::string>();
+	auto bnet_filename = parsed["bnet-file"]->get_value<std::string>();
 
 	bool trans_distr_uniform = true;
 	if (parsed["trans-distribution"])
@@ -198,6 +243,7 @@ int main(int argc, char** argv)
 		fi = parsed["initial-fixed-list"]->get_value<fixed_init_arg>();
 
 	bool symbolic = parsed["symbolic"];
+	auto symb_filename = bpp::Path::cropExtension(bnet_filename) + ".bnet";
 
 	// **** args done, lets get to work ****
 
@@ -208,7 +254,7 @@ int main(int argc, char** argv)
 
 		// create model
 		model_builder builder;
-		auto model = builder.construct_model(filename);
+		model_t model = builder.construct_model(bnet_filename);
 
 		// create initial state
 		initial_state st(model.nodes, fi.nodes, fi.values, fixed_prob);
@@ -220,22 +266,21 @@ int main(int argc, char** argv)
 		else
 			r.generate_normal(mean, std, tr.up_transition_rates, tr.down_transition_rates);
 
-		// create table
-		transition_table table(context, model);
-		table.construct_table();
-
-		// create graph
-		transition_graph g(context, table.rows, table.cols, table.indptr);
-		g.find_terminals();
-
-		// solve
-		solver s(context, table, std::move(g), std::move(r), std::move(st));
-		s.solve();
-
-		s.print_final_state(model.nodes);
+		if (symbolic && bpp::Path::exists(symb_filename))
+		{
+			compute_symbolic(std::move(context), std::move(model), std::move(st), std::move(r), symb_filename);
+		}
+		else
+		{
+			compute_no_symbolic(std::move(context), std::move(model), std::move(st), std::move(r),
+								symbolic ? symb_filename : std::optional<std::string>(std::nullopt));
+		}
 	}
 	catch (std::exception& e)
 	{
 		std::cerr << "Program ended with an exception: " << e.what() << std::endl;
+		return 1;
 	}
+
+	return 0;
 }

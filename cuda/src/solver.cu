@@ -15,8 +15,31 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  terminals_offsets_(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1),
 	  nonterminals_offsets_(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end()),
 	  rates_(std::move(r.rates)),
-	  submatrix_vertex_mapping_(ordered_vertices_.size())
+	  submatrix_vertex_mapping_(ordered_vertices_.size()),
+	  symbolic_loaded_(false),
+	  should_refactor_(false)
 {}
+
+solver::solver(cu_context& context, persistent_data& persisted, transition_rates r, initial_state s)
+	: context_(context),
+	  initial_state_(std::move(s.state)),
+	  rows_(persisted.rows),
+	  cols_(persisted.cols),
+	  indptr_(persisted.indptr),
+	  ordered_vertices_(std::move(persisted.ordered_vertices)),
+	  terminals_offsets_(std::move(persisted.terminals_offsets)),
+	  nonterminals_offsets_(std::move(persisted.nonterminals_offsets)),
+	  rates_(std::move(r.rates)),
+	  submatrix_vertex_mapping_(ordered_vertices_.size()),
+	  symbolic_loaded_(true)
+{
+	should_refactor_ = !persistent_solution::are_same(persisted, rates_);
+	if (!should_refactor_)
+	{
+		solution_term = std::move(persisted.solution_term);
+		solution_nonterm = std::move(persisted.solution_nonterm);
+	}
+}
 
 void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 							bool mapping_prefilled)
@@ -268,8 +291,11 @@ void solver::compute_final_states()
 
 void solver::solve()
 {
-	solve_terminal_part();
-	solve_nonterminal_part();
+	if (!symbolic_loaded_ || (symbolic_loaded_ && should_refactor_))
+	{
+		solve_terminal_part();
+		solve_nonterminal_part();
+	}
 
 	compute_final_states();
 }
