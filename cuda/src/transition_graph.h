@@ -1,7 +1,5 @@
 #pragma once
 
-#include <thrust/host_vector.h>
-
 #include "cu_context.h"
 #include "types.h"
 

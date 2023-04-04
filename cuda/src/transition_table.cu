@@ -1,5 +1,4 @@
 #include <thrust/copy.h>
-#include <thrust/host_vector.h>
 #include <thrust/set_operations.h>
 
 #include "sparse_utils.h"
@@ -155,4 +154,6 @@ std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()
 	return std::make_pair(std::move(trans_src), std::move(trans_dst));
 }
 
-transition_table::transition_table(cu_context& context, model_t model) : context_(context), model_(std::move(model)) {}
+transition_table::transition_table(cu_context& context, const model_t& model)
+	: context_(context), model_(std::move(model))
+{}

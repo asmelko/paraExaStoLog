@@ -12,13 +12,11 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  cols_(t.cols),
 	  indptr_(t.indptr),
 	  ordered_vertices_(std::move(g.reordered_vertices)),
+	  terminals_offsets_(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1),
+	  nonterminals_offsets_(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end()),
 	  rates_(std::move(r.rates)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size())
-{
-	terminals_offsets_ = h_idxvec(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
-
-	nonterminals_offsets_.assign(g.sccs_offsets.begin() + g.terminals_count, g.sccs_offsets.end());
-}
+{}
 
 void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_begin, sparse_csc_matrix& m,
 							bool mapping_prefilled)

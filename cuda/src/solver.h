@@ -1,27 +1,29 @@
 #pragma once
 
-#include <thrust/host_vector.h>
-
 #include "initial_state.h"
 #include "sparse_utils.h"
 #include "transition_graph.h"
 #include "transition_rates.h"
 #include "transition_table.h"
 
-
 class solver
 {
 	cu_context& context_;
+
+	// initial_state
 	d_datvec initial_state_;
 
+	// transition_table
 	const d_idxvec &rows_, &cols_; // COO
 	const d_idxvec& indptr_;	   // CSC
 
-	d_idxvec ordered_vertices_;
-	h_idxvec terminals_offsets_;
-	d_idxvec nonterminals_offsets_;
+	// transition_graph
+	const d_idxvec ordered_vertices_;
+	const h_idxvec terminals_offsets_;
+	const d_idxvec nonterminals_offsets_;
 
-	d_datvec rates_;
+	// transition_rates
+	const d_datvec rates_;
 
 	d_idxvec submatrix_vertex_mapping_;
 
