@@ -250,8 +250,8 @@ void solver::solve_nonterminal_part()
 	{
 		run_hstack(solution_nonterm.indptr.data().get(), solution_nonterm.indices.data().get(),
 				   solution_nonterm.data.data().get(), U.indptr.data().get(), X.indptr.data().get(),
-				   solution_term.indices.data().get(), X.indices.data().get(), U.data.data().get(),
-				   X.data.data().get(), solution_nonterm.indptr.size() - 1);
+				   solution_term.indices.data().get(), X.indices.data().get(), U.data.data().get(), X.data.data().get(),
+				   solution_nonterm.indptr.size() - 1);
 
 		CHECK_CUDA(cudaDeviceSynchronize());
 	}
@@ -259,9 +259,8 @@ void solver::solve_nonterminal_part()
 
 void solver::compute_final_states()
 {
-	auto y =
-		mvmul(context_.cusparse_handle, solution_nonterm.indptr, solution_nonterm.indices, solution_nonterm.data,
-			  cs_kind::CSR, terminals_offsets_.size() - 1, ordered_vertices_.size(), initial_state_);
+	auto y = mvmul(context_.cusparse_handle, solution_nonterm.indptr, solution_nonterm.indices, solution_nonterm.data,
+				   cs_kind::CSR, terminals_offsets_.size() - 1, ordered_vertices_.size(), initial_state_);
 
 	final_state = mvmul(context_.cusparse_handle, solution_term.indptr, solution_term.indices, solution_term.data,
 						cs_kind::CSC, ordered_vertices_.size(), terminals_offsets_.size() - 1, y);
@@ -273,4 +272,42 @@ void solver::solve()
 	solve_nonterminal_part();
 
 	compute_final_states();
+}
+
+void solver::print_final_state(const std::vector<std::string>& model_nodes)
+{
+	index_t n = final_state.size();
+
+	d_idxvec nonzero_indices(n);
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	d_datvec nonzero_data(nonzero_indices.size());
+
+	thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+				 thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()), nonzero_data.begin());
+
+	h_idxvec nonzero_indices_h = std::move(nonzero_indices);
+	h_datvec nonzero_data_h = std::move(nonzero_data);
+
+	for (size_t i = 0; i < nonzero_indices_h.size(); i++)
+	{
+		index_t index = nonzero_indices_h[i];
+		bool node_printed = false;
+		for (index_t node_i = 0; node_i < model_nodes.size(); node_i++)
+			if (index & (1 << node_i))
+			{
+				if (node_printed)
+					std::cout << " --- ";
+				std::cout << model_nodes[node_i];
+				node_printed = true;
+			}
+
+		if (!node_printed)
+			std::cout << "<nil>";
+
+		std::cout << " " << nonzero_data_h[i] << std::endl;
+	}
 }

@@ -18,6 +18,9 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 							 const std::vector<bool>& fixed_node_values, real_t fixed_probability)
 
 {
+	if (fixed_node_names.size() != fixed_node_values.size())
+		throw std::runtime_error("number of fixed node names not equal to number of fixed node values");
+
 	if (fixed_node_names.empty())
 	{
 		state = d_datvec(1ULL << node_names.size(), 1.f / (1ULL << node_names.size()));
@@ -32,7 +35,7 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 
 		if (it == node_names.end())
 		{
-			std::runtime_error("invalid initial node name");
+			throw std::runtime_error("invalid initial node name: " + fn);
 		}
 
 		fixed_nodes.push_back(std::distance(node_names.begin(), it));

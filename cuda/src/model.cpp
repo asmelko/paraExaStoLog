@@ -81,6 +81,9 @@ model_t model_builder::construct_model(const std::string& file)
 {
 	std::ifstream f(file);
 
+	if (!f.is_open())
+		throw std::runtime_error("could not open model file");
+
 	std::string line;
 	std::getline(f, line);
 

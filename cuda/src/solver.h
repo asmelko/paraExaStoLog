@@ -49,5 +49,7 @@ public:
 
 	void solve();
 
+	void print_final_state(const std::vector<std::string>& model_nodes);
+
 	friend persistent_solution;
 };
