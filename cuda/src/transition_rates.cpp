@@ -28,7 +28,7 @@ d_datvec transition_rates::generate(std::function<real_t()> generator, const std
 	auto up_rates = transform(up_transition_rates);
 	auto down_rates = transform(down_transition_rates);
 
-	for (index_t i = 0; i < model_.nodes.size(); i++)
+	for (index_t i = 0; i < (index_t)model_.nodes.size(); i++)
 	{
 		auto up_rate = up_rates.find(i);
 		auto down_rate = down_rates.find(i);

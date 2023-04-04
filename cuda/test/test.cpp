@@ -493,12 +493,12 @@ TEST(solver, mammal)
 	ASSERT_EQ(nonzero_indices.size(), expected_indices.size());
 	ASSERT_EQ(nonzero_data.size(), expected_probs.size());
 
-	for (index_t i = 0; i < nonzero_indices.size(); i++)
+	for (size_t i = 0; i < nonzero_indices.size(); i++)
 	{
 		ASSERT_EQ(nonzero_indices[i], expected_indices[i]);
 	}
 
-	for (index_t i = 0; i < nonzero_indices.size(); i++)
+	for (size_t i = 0; i < nonzero_indices.size(); i++)
 	{
 		ASSERT_NEAR(nonzero_data[i], expected_probs[i], 1e-07f);
 	}
