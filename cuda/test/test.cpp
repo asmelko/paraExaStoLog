@@ -3,6 +3,7 @@
 #include <thrust/copy.h>
 #include <thrust/host_vector.h>
 
+#include "sga/timer.h"
 #include "solver.h"
 
 TEST(trans_table, toy)
@@ -549,4 +550,79 @@ TEST(rates, toy)
 	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(1, 2, 4));
 	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
 												   { 0.5000000000000009, 0.22916666666666666, 0.2708333333333333 }));
+}
+
+TEST(serializer, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(model.nodes);
+
+	transition_rates r(model);
+	r.generate_uniform({}, { { "C", 2.f } });
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
+
+	s.solve();
+
+	std::string filename = "f.txt";
+
+	persistent_solution::serialize(filename, s);
+
+	auto d = persistent_solution::deserialize(filename);
+
+	ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
+}
+
+TEST(serializer, zanudo)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/zanudo_expanded.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
+					 { false, true, false, false, false }, 1.f);
+
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
+
+	s.solve();
+
+	std::string filename = "f.txt";
+
+	Timer t;
+
+	t.Start();
+	persistent_solution::serialize(filename, s);
+	t.Stop();
+	std::cout << "Serialization duration: " << t.Millisecs() << "ms" << std::endl;
+
+	t.Start();
+	auto d = persistent_solution::deserialize(filename);
+	t.Stop();
+	std::cout << "Deserialization duration: " << t.Millisecs() << "ms" << std::endl;
+
+	ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
 }

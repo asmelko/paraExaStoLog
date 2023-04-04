@@ -1,6 +1,7 @@
 #pragma once
 
 #include "initial_state.h"
+#include "persistent_solution.h"
 #include "sparse_utils.h"
 #include "transition_graph.h"
 #include "transition_rates.h"
@@ -47,4 +48,6 @@ public:
 	void compute_final_states();
 
 	void solve();
+
+	friend persistent_solution;
 };
