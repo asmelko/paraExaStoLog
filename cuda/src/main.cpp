@@ -239,7 +239,11 @@ int main(int argc, char** argv)
 	{
 		auto distr = parsed["initial-distribution"]->get_value<std::string>();
 		if (distr == "RANDOM")
+		{
 			init_distr_uniform = false;
+			std::cerr << "RANDOM initial state distribution not implemented" << std::endl;
+			return 1;
+		}
 		if (distr != "RANDOM" && distr != "UNIFORM")
 		{
 			std::cerr << "Bad initial state distribution type" << std::endl;
