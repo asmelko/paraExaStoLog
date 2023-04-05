@@ -2,6 +2,7 @@
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 
+#include "diagnostics.h"
 #include "kernels/kernels.h"
 #include "sga/scc.h"
 #include "sparse_utils.h"
@@ -119,8 +120,11 @@ void transition_graph::create_metagraph(const d_idxvec& labels, index_t sccs_cou
 	coo2csc(context_.cusparse_handle, sccs_count, meta_indices, meta_cols, meta_indptr);
 }
 
-void transition_graph::find_terminals()
+void transition_graph::reorganize_vertices()
 {
+	Timer t;
+	t.Start();
+
 	auto labels = compute_sccs();
 
 	d_idxvec scc_ids_tmp = labels;
@@ -159,36 +163,40 @@ void transition_graph::find_terminals()
 
 		terminals_count = 1;
 		sccs_offsets = std::move(scc_sizes);
-		return;
 	}
-
-	d_idxvec meta_indptr, meta_indices;
-	create_metagraph(labels, sccs_count, meta_indptr, meta_indices);
-
-	d_idxvec meta_labels, meta_ordering;
-	toposort(meta_indptr, meta_indices, scc_sizes, meta_labels, meta_ordering);
-
-	// get terminals
+	else
 	{
-		terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
+		d_idxvec meta_indptr, meta_indices;
+		create_metagraph(labels, sccs_count, meta_indptr, meta_indices);
+
+		d_idxvec meta_labels, meta_ordering;
+		toposort(meta_indptr, meta_indices, scc_sizes, meta_labels, meta_ordering);
+
+		// get terminals
+		{
+			terminals_count = thrust::count(meta_labels.begin(), meta_labels.end(), 1);
+		}
+
+		// reorganize
+		{
+			// reverse ordering + ordering sizes such that nonterminals are sorted ascending
+			thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
+			thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
+
+			thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
+
+			sccs_offsets = std::move(scc_sizes);
+
+			reordered_vertices.resize(vertices_count_);
+
+			run_reorganize(sccs_count, original_sccs_offsets.data().get(), sccs_offsets.data().get(),
+						   meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
+						   reordered_vertices.data().get());
+
+			CHECK_CUDA(cudaDeviceSynchronize());
+		}
 	}
 
-	// reorganize
-	{
-		// reverse ordering + ordering sizes such that nonterminals are sorted ascending
-		thrust::reverse(scc_sizes.begin() + terminals_count + 1, scc_sizes.end());
-		thrust::reverse(meta_ordering.begin() + terminals_count, meta_ordering.end());
-
-		thrust::inclusive_scan(scc_sizes.begin(), scc_sizes.end(), scc_sizes.begin());
-
-		sccs_offsets = std::move(scc_sizes);
-
-		reordered_vertices.resize(vertices_count_);
-
-		run_reorganize(sccs_count, original_sccs_offsets.data().get(), sccs_offsets.data().get(),
-					   meta_ordering.data().get(), vertices_ordered_by_scc.data().get(),
-					   reordered_vertices.data().get());
-
-		CHECK_CUDA(cudaDeviceSynchronize());
-	}
+	t.Stop();
+	diag_print("Transition graph creation: ", t.Millisecs(), "ms");
 }

@@ -1,5 +1,6 @@
 #include <thrust/partition.h>
 
+#include "diagnostics.h"
 #include "kernels/kernels.h"
 #include "linear_system_solve.h"
 #include "solver.h"
@@ -100,6 +101,8 @@ void solver::take_submatrix(index_t n, d_idxvec::const_iterator vertices_subset_
 
 void solver::solve_terminal_part()
 {
+	print_terminal_info(terminals_offsets_);
+
 	solution_term.indptr = terminals_offsets_;
 	solution_term.indices.resize(terminals_offsets_.back());
 	solution_term.data.resize(terminals_offsets_.back());
@@ -110,6 +113,16 @@ void solver::solve_terminal_part()
 	for (size_t terminal_scc_idx = 1; terminal_scc_idx < terminals_offsets_.size(); terminal_scc_idx++)
 	{
 		size_t scc_size = terminals_offsets_[terminal_scc_idx] - terminals_offsets_[terminal_scc_idx - 1];
+
+		if constexpr (diags_enabled)
+		{
+			printf("\r                                                                        ");
+			printf("\rSolving (terminal part): %i/%i with size %i", (index_t)terminal_scc_idx,
+				   (index_t)terminals_offsets_.size() - 1, (index_t)scc_size);
+
+			if (terminal_scc_idx == terminals_offsets_.size() - 1)
+				printf("\n");
+		}
 
 		if (scc_size == 1)
 		{
@@ -300,13 +313,27 @@ void solver::compute_final_states()
 
 void solver::solve()
 {
+	Timer t;
 	if (!symbolic_loaded_ || (symbolic_loaded_ && recompute_needed))
 	{
+		t.Start();
 		solve_terminal_part();
+		t.Stop();
+
+		diag_print("Solving (terminal part): ", t.Millisecs(), "ms");
+
+		t.Start();
 		solve_nonterminal_part();
+		t.Stop();
+
+		diag_print("Solving (nonterminal part): ", t.Millisecs(), "ms");
 	}
 
+	t.Start();
 	compute_final_states();
+	t.Stop();
+
+	diag_print("Solving (final states): ", t.Millisecs(), "ms");
 }
 
 void solver::print_final_state(const std::vector<std::string>& model_nodes)

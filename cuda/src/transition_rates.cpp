@@ -2,6 +2,8 @@
 
 #include <random>
 
+#include "diagnostics.h"
+
 std::map<index_t, real_t> transition_rates::transform(const std::vector<ptrans_t>& transition_rates)
 {
 	std::map<index_t, real_t> rates_map;
@@ -60,8 +62,14 @@ transition_rates::transition_rates(const model_t& model) : model_(model) {}
 void transition_rates::generate_uniform(const std::vector<ptrans_t>& up_transition_rates,
 										const std::vector<ptrans_t>& down_transition_rates)
 {
+	Timer t;
+	t.Start();
+
 	auto generator = []() { return 1.f; };
 	rates = generate(generator, up_transition_rates, down_transition_rates);
+
+	t.Stop();
+	diag_print("Transition rates creation: ", t.Millisecs(), "ms");
 }
 
 void transition_rates::generate_normal(real_t mean, real_t std, const std::vector<ptrans_t>& up_transition_rates,

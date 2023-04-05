@@ -12,6 +12,7 @@
 #include <thrust/sort.h>
 #include <thrust/unique.h>
 
+#include "diagnostics.h"
 #include "kernels/kernels.h"
 #include "linear_system_solve.h"
 #include "sparse_utils.h"
@@ -144,10 +145,19 @@ std::vector<host_sparse_csr_matrix> lu_big_nnz(cusolverSpHandle_t handle, index_
 	std::vector<host_sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	thrust::for_each(thrust::host, thrust::make_counting_iterator<index_t>(big_scc_start),
+	thrust::for_each(thrust::seq, thrust::make_counting_iterator<index_t>(big_scc_start),
 					 thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
 						 const index_t scc_offset = scc_offsets[i];
 						 const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
+
+						 if constexpr (diags_enabled)
+						 {
+							 printf("\r                                                                  ");
+							 printf("\rLU (big nnz): %i/%i with size %i", (i + 1) - big_scc_start,
+									(index_t)scc_sizes.size() - big_scc_start, scc_size);
+							 if (i == scc_sizes.size() - 1)
+								 printf("\n");
+						 }
 
 						 // create indptr
 						 h_idxvec scc_indptr(indptr.begin() + scc_offset, indptr.begin() + scc_offset + scc_size + 1);
@@ -211,19 +221,41 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	const index_t small_scc_rows = small_sccs_size == 0 ? 0 : part_scc_sizes[small_sccs_size - 1];
 	const index_t big_scc_rows = big_sccs_size == 0 ? 0 : part_scc_sizes.back();
 
+	if constexpr (diags_enabled)
+	{
+		diag_print("LU: total number of vertices: ", A_indptr.size() - 1);
+		diag_print("LU: small (<=", big_scc_threshold, ") sccs count is ", small_sccs_size, " with ", small_scc_rows,
+				   " edges");
+		diag_print("LU: big (> ", big_scc_threshold, ") sccs count is ", big_sccs_size, " with ", big_scc_rows,
+				   " edges");
+		print_big_scc_info(small_sccs_size, part_scc_sizes);
+	}
+
 	As_indptr.resize(A_indptr.size());
 	As_indptr[0] = 0;
 
+	Timer t;
+
 	// first we count nnz of triv
 	{
+		t.Start();
 		run_cuda_kernel_splu_symbolic_fact_triv_nnz(small_scc_rows, small_sccs_size, part_scc_sizes.data().get(),
 													part_scc_offsets.data().get(), A_indices.data().get(),
 													A_indptr.data().get(), As_indptr.data().get() + 1);
+		t.Stop();
+		diag_print("LU (small nnz): ", t.Millisecs(), "ms");
 	}
 
+	std::vector<host_sparse_csr_matrix> lus;
+
 	// without waiting we compute nnz of non triv
-	auto lus = lu_big_nnz(context.cusolver_handle, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
-						  A_indices, A_data, As_indptr);
+	{
+		t.Start();
+		lus = lu_big_nnz(context.cusolver_handle, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
+						 A_indices, A_data, As_indptr);
+		t.Stop();
+		diag_print("LU (big nnz): ", t.Millisecs(), "ms");
+	}
 
 	// we allocate required space
 	{
@@ -236,14 +268,23 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 
 	// we populate  triv
 	{
+		t.Start();
 		run_cuda_kernel_splu_symbolic_fact_triv_populate(
 			small_scc_rows, small_sccs_size, part_scc_sizes.data().get(), part_scc_offsets.data().get(),
 			A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), As_indptr.data().get(),
 			As_indices.data().get(), As_data.data().get());
+		t.Stop();
+		diag_print("LU (small populate): ", t.Millisecs(), "ms");
 	}
 
 	// we populate non triv
-	lu_big_populate(context.cusolver_handle, small_sccs_size, part_scc_offsets, As_indptr, As_indices, As_data, lus);
+	{
+		t.Start();
+		lu_big_populate(context.cusolver_handle, small_sccs_size, part_scc_offsets, As_indptr, As_indices, As_data,
+						lus);
+		t.Stop();
+		diag_print("LU (big populate): ", t.Millisecs(), "ms");
+	}
 
 	CHECK_CUDA(cudaDeviceSynchronize());
 }
@@ -344,7 +385,7 @@ sparse_csr_matrix refactor(sparse_csr_matrix&& A, const sparse_csr_matrix& B, ho
 		cusolverRfSetMatrixFormat(cusolverRfH, CUSOLVERRF_MATRIX_FORMAT_CSR, CUSOLVERRF_UNIT_DIAGONAL_ASSUMED_L));
 
 	//// fast mode for matrix assembling
-	//CHECK_CUSOLVER(cusolverRfSetResetValuesFastMode(cusolverRfH, CUSOLVERRF_RESET_VALUES_FAST_MODE_ON));
+	// CHECK_CUSOLVER(cusolverRfSetResetValuesFastMode(cusolverRfH, CUSOLVERRF_RESET_VALUES_FAST_MODE_ON));
 
 	d_idxvec p(M.n()), q(M.n());
 	thrust::sequence(p.begin(), p.end());
@@ -359,9 +400,9 @@ sparse_csr_matrix refactor(sparse_csr_matrix&& A, const sparse_csr_matrix& B, ho
 	CHECK_CUSOLVER(cusolverRfAnalyze(cusolverRfH));
 	CHECK_CUDA(cudaDeviceSynchronize());
 
-	//CHECK_CUSOLVER(cusolverRfResetValues(A.n(), A.nnz(), A.indptr.data().get(), A.indices.data().get(),
+	// CHECK_CUSOLVER(cusolverRfResetValues(A.n(), A.nnz(), A.indptr.data().get(), A.indices.data().get(),
 	//									 A_data.data().get(), p.data().get(), q.data().get(), cusolverRfH));
-	//CHECK_CUDA(cudaDeviceSynchronize());
+	// CHECK_CUDA(cudaDeviceSynchronize());
 
 	CHECK_CUSOLVER(cusolverRfRefactor(cusolverRfH));
 	CHECK_CUDA(cudaDeviceSynchronize());
@@ -426,7 +467,13 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	d_idxvec M_indptr, M_indices;
 	d_datvec M_data;
 
+	Timer t;
+
+	t.Start();
 	splu(context, scc_offsets, A.indptr, A.indices, A.data, M_indptr, M_indices, M_data);
+	t.Stop();
+
+	diag_print("Solving (LU decomposition): ", t.Millisecs(), "ms");
 
 	cusparseMatDescr_t descr_L = 0;
 	cusparseMatDescr_t descr_U = 0;
@@ -475,6 +522,11 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 											descr_U, M_data.data().get(), M_indptr.data().get(), M_indices.data().get(),
 											1, info_U, policy_U, buffer_U.data().get()));
 
+	diag_print("Number of right-hand sides needed to solve: ", B.indptr.size() - 1, " with ", A.n(),
+			   " number of unknowns");
+
+	t.Start();
+
 	sparse_csr_matrix X;
 
 	h_idxvec hb_indptr = B.indptr;
@@ -521,6 +573,9 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	}
 
 	X.indptr = hx_indptr;
+
+	t.Stop();
+	diag_print("Solving (triangular solving): ", t.Millisecs(), "ms");
 
 	// step 6: free resources
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));

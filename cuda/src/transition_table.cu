@@ -1,6 +1,7 @@
 #include <thrust/copy.h>
 #include <thrust/set_operations.h>
 
+#include "diagnostics.h"
 #include "sparse_utils.h"
 #include "transition_table.h"
 
@@ -119,6 +120,9 @@ std::pair<d_idxvec, d_idxvec> transition_table::generate_transitions(const std::
 
 void transition_table::construct_table()
 {
+	Timer t;
+	t.Start();
+
 	auto p = compute_rows_and_cols();
 
 	cols = std::move(p.first);
@@ -126,6 +130,9 @@ void transition_table::construct_table()
 
 	int matrix_size = (int)(1ULL << model_.nodes.size());
 	coo2csc(context_.cusparse_handle, matrix_size, rows, cols, indptr);
+
+	t.Stop();
+	diag_print("Transition table creation: ", t.Millisecs(), "ms");
 }
 
 std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()

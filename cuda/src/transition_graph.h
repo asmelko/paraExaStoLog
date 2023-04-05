@@ -24,5 +24,5 @@ public:
 
 	transition_graph(cu_context& context, const d_idxvec& rows, const d_idxvec& cols, const d_idxvec& indptr);
 
-	void find_terminals();
+	void reorganize_vertices();
 };

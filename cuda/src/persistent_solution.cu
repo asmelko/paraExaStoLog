@@ -14,17 +14,17 @@ void write_size(bpp::File& f, const vec_t& v)
 }
 
 template <typename T>
+void write_content(bpp::File& f, const thrust::host_vector<T>& h)
+{
+	f.write(h.data(), h.size());
+}
+
+template <typename T>
 void write_content(bpp::File& f, const thrust::device_vector<T>& v)
 {
 	thrust::host_vector<T> h = v;
 
 	write_content(f, h);
-}
-
-template <typename T>
-void write_content(bpp::File& f, const thrust::host_vector<T>& h)
-{
-	f.write(h.data(), h.size());
 }
 
 void persistent_solution::serialize(const std::string& file, const solver& s, bool no_inverse)

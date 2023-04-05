@@ -84,7 +84,6 @@ struct mbas::value_type<fixed_init_arg>
 			if (eq_pos == std::string::npos || eq_pos + 1 >= e.size() || (e[eq_pos + 1] != '0' && e[eq_pos + 1] != '1'))
 				return false;
 
-			auto val = e.substr(eq_pos + 1);
 			auto node = e.substr(0, eq_pos);
 
 			result.nodes.emplace_back(node);
@@ -109,7 +108,7 @@ void compute_no_symbolic(cu_context& context, model_t model, initial_state state
 
 	// create graph
 	transition_graph g(context, table.rows, table.cols, table.indptr);
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	// solve
 	solver s(context, table, std::move(g), std::move(rates), std::move(state));
@@ -145,7 +144,7 @@ void compute_symbolic(cu_context& context, model_t model, initial_state state, t
 
 		// create graph
 		transition_graph g(context, table.rows, table.cols, table.indptr);
-		g.find_terminals();
+		g.reorganize_vertices();
 
 		// solve
 		solver s(context, table, std::move(g), std::move(rates), std::move(state));
@@ -234,13 +233,13 @@ int main(int argc, char** argv)
 	if (parsed["trans-rates"])
 		tr = parsed["trans-rates"]->get_value<trans_rate_arg>();
 
-	bool init_distr_uniform = true;
+	// bool init_distr_uniform = true;
 	if (parsed["initial-distribution"])
 	{
 		auto distr = parsed["initial-distribution"]->get_value<std::string>();
 		if (distr == "RANDOM")
 		{
-			init_distr_uniform = false;
+			// init_distr_uniform = false;
 			std::cerr << "RANDOM initial state distribution not implemented" << std::endl;
 			return 1;
 		}

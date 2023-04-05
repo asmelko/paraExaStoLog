@@ -43,7 +43,7 @@ TEST(trans_graph, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	h_idxvec vertices = g.reordered_vertices;
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
@@ -80,7 +80,7 @@ TEST(solver, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	h_idxvec vertices = g.reordered_vertices;
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
@@ -145,7 +145,7 @@ TEST(solver, toy2)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	h_idxvec vertices = g.reordered_vertices;
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
@@ -210,7 +210,7 @@ TEST(solver, toy3)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	h_idxvec vertices = g.reordered_vertices;
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
@@ -275,7 +275,7 @@ TEST(solver, kras)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
 
@@ -320,7 +320,7 @@ TEST(solver, cohen)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(
 		model.nodes,
@@ -367,7 +367,7 @@ TEST(solver, zanudo)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
@@ -412,7 +412,7 @@ TEST(solver, mammal)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes, { "CycE", "CycA", "CycB", "Cdh1", "Rb_b1", "Rb_b2", "p27_b1", "p27_b2" },
 					 { false, false, false, true, true, true, true, true }, 1.f);
@@ -527,7 +527,7 @@ TEST(rates, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	h_idxvec vertices = g.reordered_vertices;
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
@@ -574,7 +574,7 @@ TEST(serializer, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes);
 
@@ -607,7 +607,7 @@ TEST(serializer, zanudo)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
@@ -655,7 +655,7 @@ TEST(symbolic_no_refactor, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes);
 
@@ -718,7 +718,7 @@ TEST(symbolic_no_refactor, cohen)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes);
 
@@ -793,7 +793,7 @@ TEST(symbolic_with_refactor, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes);
 
@@ -864,7 +864,7 @@ TEST(symbolic_with_refactor, cohen)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	solver s(context, table, std::move(g), std::move(r), st);
 
@@ -940,7 +940,7 @@ TEST(zero_rate, toy)
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
-	g.find_terminals();
+	g.reorganize_vertices();
 
 	initial_state st(model.nodes);
 
