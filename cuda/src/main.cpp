@@ -192,7 +192,7 @@ int main(int argc, char** argv)
 				   "program first looks up F.symb and uses it to accelerate the computation.",
 				   true);
 	cmd.add_option(
-		"no-symb-rates",
+		"n,no-symb-rates",
 		"Disable some parts of symbolic computation. More specifically, if --symbolic flag is set and user changes "
 		"transition rates, a matrix inversion of non-terminal part of kinetic matrix will be recomputed from scratch. "
 		"This saves up memory and in some cases makes the symbolic computation faster due to deserialization overhead.",
