@@ -75,6 +75,12 @@ d_idxvec transition_table::construct_transition_vector(const std::vector<index_t
 std::pair<d_idxvec, d_idxvec> transition_table::generate_transitions(const std::vector<clause_t>& clauses,
 																	 index_t variable_idx)
 {
+	bool zero_up_rate = rates_[2 * variable_idx] == 0.f;
+	bool zero_down_rate = rates_[2 * variable_idx + 1] == 0.f;
+
+	if (zero_up_rate && zero_down_rate)
+		return {};
+
 	index_t states_n = (index_t)(1ULL << model_.nodes.size());
 	thrust::device_vector<bool> evaluation(states_n, false);
 
@@ -92,15 +98,21 @@ std::pair<d_idxvec, d_idxvec> transition_table::generate_transitions(const std::
 	auto b = thrust::make_zip_iterator(thrust::make_counting_iterator(0), evaluation.begin());
 	auto e = thrust::make_zip_iterator(thrust::make_counting_iterator(states_n), evaluation.end());
 
-	d_idxvec up_transition(states_n);
-	auto up_out = thrust::make_zip_iterator(up_transition.begin(), thrust::make_constant_iterator(0));
-	auto up_end = thrust::copy_if(b, e, up_out, var_trans_ftor(1 << variable_idx, true));
-	up_transition.resize(thrust::get<0>(up_end.get_iterator_tuple()) - up_transition.begin());
+	d_idxvec up_transition(zero_up_rate ? 0 : states_n);
+	if (!zero_up_rate)
+	{
+		auto up_out = thrust::make_zip_iterator(up_transition.begin(), thrust::make_constant_iterator(0));
+		auto up_end = thrust::copy_if(b, e, up_out, var_trans_ftor(1 << variable_idx, true));
+		up_transition.resize(thrust::get<0>(up_end.get_iterator_tuple()) - up_transition.begin());
+	}
 
-	d_idxvec down_transition(states_n);
-	auto down_out = thrust::make_zip_iterator(down_transition.begin(), thrust::make_constant_iterator(0));
-	auto down_end = thrust::copy_if(b, e, down_out, var_trans_ftor(1 << variable_idx, false));
-	down_transition.resize(thrust::get<0>(down_end.get_iterator_tuple()) - down_transition.begin());
+	d_idxvec down_transition(zero_down_rate ? 0 : states_n);
+	if (!zero_down_rate)
+	{
+		auto down_out = thrust::make_zip_iterator(down_transition.begin(), thrust::make_constant_iterator(0));
+		auto down_end = thrust::copy_if(b, e, down_out, var_trans_ftor(1 << variable_idx, false));
+		down_transition.resize(thrust::get<0>(down_end.get_iterator_tuple()) - down_transition.begin());
+	}
 
 	return std::make_pair(std::move(up_transition), std::move(down_transition));
 }
@@ -154,6 +166,6 @@ std::pair<d_idxvec, d_idxvec> transition_table::compute_rows_and_cols()
 	return std::make_pair(std::move(trans_src), std::move(trans_dst));
 }
 
-transition_table::transition_table(cu_context& context, const model_t& model)
-	: context_(context), model_(std::move(model))
+transition_table::transition_table(cu_context& context, const model_t& model, const d_datvec& transition_rates)
+	: context_(context), model_(std::move(model)), rates_(transition_rates)
 {}

@@ -13,7 +13,10 @@ TEST(trans_table, toy)
 
 	cu_context context;
 
-	transition_table table(context, std::move(model));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -31,7 +34,10 @@ TEST(trans_graph, toy)
 
 	cu_context context;
 
-	transition_table table(context, std::move(model));
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -65,7 +71,10 @@ TEST(solver, toy)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -80,9 +89,6 @@ TEST(solver, toy)
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 1, 2, 3));
 
 	initial_state st(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -130,7 +136,10 @@ TEST(solver, toy2)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -145,9 +154,6 @@ TEST(solver, toy2)
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 6));
 
 	initial_state st(model.nodes, { "A", "B", "C" }, { false, false, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -195,7 +201,10 @@ TEST(solver, toy3)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -210,9 +219,6 @@ TEST(solver, toy3)
 	ASSERT_THAT(offsets, ::testing::ElementsAre(0, 4));
 
 	initial_state st(model.nodes, { "A", "B" }, { false, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -260,7 +266,10 @@ TEST(solver, kras)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -269,9 +278,6 @@ TEST(solver, kras)
 	g.find_terminals();
 
 	initial_state st(model.nodes, { "cc", "KRAS", "DSB", "cell_death" }, { true, true, true, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -305,7 +311,10 @@ TEST(solver, cohen)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -317,9 +326,6 @@ TEST(solver, cohen)
 		model.nodes,
 		{ "ECMicroenv", "DNAdamage", "Metastasis", "Migration", "Invasion", "EMT", "Apoptosis", "Notch_pthw", "p53" },
 		{ true, true, false, false, false, false, false, true, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -352,7 +358,10 @@ TEST(solver, zanudo)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -362,9 +371,6 @@ TEST(solver, zanudo)
 
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -397,7 +403,10 @@ TEST(solver, mammal)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -407,9 +416,6 @@ TEST(solver, mammal)
 
 	initial_state st(model.nodes, { "CycE", "CycA", "CycB", "Cdh1", "Rb_b1", "Rb_b2", "p27_b1", "p27_b2" },
 					 { false, false, false, true, true, true, true, true }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -512,7 +518,10 @@ TEST(rates, toy)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform({}, { { "C", 2.f } });
+
+	transition_table table(context, std::move(model), r.rates);
 
 	table.construct_table();
 
@@ -524,9 +533,6 @@ TEST(rates, toy)
 	h_idxvec offsets(g.sccs_offsets.begin(), g.sccs_offsets.begin() + g.terminals_count + 1);
 
 	initial_state st(model.nodes);
-
-	transition_rates r(model);
-	r.generate_uniform({}, { { "C", 2.f } });
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -559,7 +565,10 @@ TEST(serializer, toy)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform({}, { { "C", 2.f } });
+
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
@@ -568,9 +577,6 @@ TEST(serializer, toy)
 	g.find_terminals();
 
 	initial_state st(model.nodes);
-
-	transition_rates r(model);
-	r.generate_uniform({}, { { "C", 2.f } });
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -592,7 +598,10 @@ TEST(serializer, zanudo)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
@@ -602,9 +611,6 @@ TEST(serializer, zanudo)
 
 	initial_state st(model.nodes, { "Alpelisib", "Everolimus", "PIM", "Proliferation", "Apoptosis" },
 					 { false, true, false, false, false }, 1.f);
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), std::move(st));
 
@@ -627,7 +633,7 @@ TEST(serializer, zanudo)
 		t.Start();
 		auto d = persistent_solution::deserialize(filename, no_inverse);
 		t.Stop();
-		std::cout << "Serialization duration " + what + ": " << t.Millisecs() << "ms" << std::endl;
+		std::cout << "Deserialization duration " + what + ": " << t.Millisecs() << "ms" << std::endl;
 
 		ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
 	}
@@ -640,7 +646,10 @@ TEST(symbolic_no_refactor, toy)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform({}, {});
+
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
@@ -649,9 +658,6 @@ TEST(symbolic_no_refactor, toy)
 	g.find_terminals();
 
 	initial_state st(model.nodes);
-
-	transition_rates r(model);
-	r.generate_uniform({}, {});
 
 	solver s(context, table, std::move(g), r, std::move(st));
 
@@ -706,7 +712,7 @@ TEST(symbolic_no_refactor, cohen)
 
 	t.Start();
 
-	transition_table table(context, model);
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
@@ -778,7 +784,10 @@ TEST(symbolic_with_refactor, toy)
 
 	cu_context context;
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform({}, {});
+
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
@@ -787,9 +796,6 @@ TEST(symbolic_with_refactor, toy)
 	g.find_terminals();
 
 	initial_state st(model.nodes);
-
-	transition_rates r(model);
-	r.generate_uniform({}, {});
 
 	solver s(context, table, std::move(g), r, st);
 
@@ -849,16 +855,16 @@ TEST(symbolic_with_refactor, cohen)
 
 	t.Start();
 
-	transition_table table(context, model);
+	transition_rates r(model);
+	r.generate_uniform();
+
+	transition_table table(context, model, r.rates);
 
 	table.construct_table();
 
 	transition_graph g(context, table.rows, table.cols, table.indptr);
 
 	g.find_terminals();
-
-	transition_rates r(model);
-	r.generate_uniform();
 
 	solver s(context, table, std::move(g), std::move(r), st);
 
@@ -916,4 +922,48 @@ TEST(symbolic_with_refactor, cohen)
 					::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
 										 { 0.659006, 0.202294, 0.138699 }));
 	}
+}
+
+TEST(zero_rate, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	cu_context context;
+
+	transition_rates r(model);
+	r.generate_uniform({}, { { "C", 0.f } });
+
+	transition_table table(context, std::move(model), r.rates);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(model.nodes);
+
+	solver s(context, table, std::move(g), std::move(r), std::move(st));
+
+	s.solve();
+
+	thrust::host_vector<float> final_state = s.final_state;
+
+	h_idxvec nonzero_indices(final_state.size());
+	thrust::host_vector<float> nonzero_data(final_state.size());
+
+	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+	nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+							  nonzero_data.begin());
+	nonzero_data.resize(d_end - nonzero_data.begin());
+
+	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(1, 2, 3, 4));
+	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+												   { 0.25, 0.3125, 0.25, 0.1875 }));
 }

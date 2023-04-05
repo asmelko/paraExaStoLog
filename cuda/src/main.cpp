@@ -104,7 +104,7 @@ void compute_no_symbolic(cu_context& context, model_t model, initial_state state
 						 std::optional<std::string> serialize_file, bool no_inverse)
 {
 	// create table
-	transition_table table(context, model);
+	transition_table table(context, model, rates.rates);
 	table.construct_table();
 
 	// create graph
@@ -140,7 +140,7 @@ void compute_symbolic(cu_context& context, model_t model, initial_state state, t
 	else
 	{
 		// create table
-		transition_table table(context, model);
+		transition_table table(context, model, rates.rates);
 		table.construct_table();
 
 		// create graph
