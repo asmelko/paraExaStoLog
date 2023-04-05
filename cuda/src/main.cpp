@@ -100,8 +100,8 @@ struct mbas::value_type<fixed_init_arg>
 	}
 };
 
-void compute_no_symbolic(cu_context context, model_t model, initial_state state, transition_rates rates,
-						 std::optional<std::string> serialize_file)
+void compute_no_symbolic(cu_context& context, model_t model, initial_state state, transition_rates rates,
+						 std::optional<std::string> serialize_file, bool no_inverse)
 {
 	// create table
 	transition_table table(context, model);
@@ -118,29 +118,43 @@ void compute_no_symbolic(cu_context context, model_t model, initial_state state,
 	s.print_final_state(model.nodes);
 
 	if (serialize_file)
-		persistent_solution::serialize(*serialize_file, s);
+		persistent_solution::serialize(*serialize_file, s, no_inverse);
 }
 
-void compute_symbolic(cu_context context, model_t model, initial_state state, transition_rates rates,
-					  const std::string& serialize_file)
+void compute_symbolic(cu_context& context, model_t model, initial_state state, transition_rates rates,
+					  const std::string& serialize_file, bool no_inverse)
 {
-	auto data = persistent_solution::deserialize(serialize_file);
+	auto data = persistent_solution::deserialize(serialize_file, no_inverse);
 
-	// create table
-	transition_table table(context, model);
-	table.construct_table();
+	if (persistent_solution::has_compatible_zero_rates(data, rates.rates))
+	{
+		// solve
+		solver s(context, data, std::move(rates), std::move(state));
+		s.solve();
 
-	// create graph
-	transition_graph g(context, table.rows, table.cols, table.indptr);
-	g.find_terminals();
+		s.print_final_state(model.nodes);
 
-	// solve
-	solver s(context, table, std::move(g), std::move(rates), std::move(state));
-	s.solve();
+		if (s.recompute_needed)
+			persistent_solution::serialize(serialize_file, s, no_inverse);
+	}
+	else
+	{
+		// create table
+		transition_table table(context, model);
+		table.construct_table();
 
-	s.print_final_state(model.nodes);
+		// create graph
+		transition_graph g(context, table.rows, table.cols, table.indptr);
+		g.find_terminals();
 
-	persistent_solution::serialize(serialize_file, s);
+		// solve
+		solver s(context, table, std::move(g), std::move(rates), std::move(state));
+		s.solve();
+
+		s.print_final_state(model.nodes);
+
+		persistent_solution::serialize(serialize_file, s, no_inverse);
+	}
 }
 
 int main(int argc, char** argv)
@@ -177,6 +191,12 @@ int main(int argc, char** argv)
 				   "created which contains symbolic information of the computation. In the further runs of F.bnet, the "
 				   "program first looks up F.symb and uses it to accelerate the computation.",
 				   true);
+	cmd.add_option(
+		"no-symb-rates",
+		"Disable some parts of symbolic computation. More specifically, if --symbolic flag is set and user changes "
+		"transition rates, a matrix inversion of non-terminal part of kinetic matrix will be recomputed from scratch. "
+		"This saves up memory and in some cases makes the symbolic computation faster due to deserialization overhead.",
+		true);
 
 	auto parsed = cmd.parse(argc, argv);
 
@@ -243,7 +263,8 @@ int main(int argc, char** argv)
 		fi = parsed["initial-fixed-list"]->get_value<fixed_init_arg>();
 
 	bool symbolic = parsed["symbolic"];
-	auto symb_filename = bpp::Path::cropExtension(bnet_filename) + ".bnet";
+	bool symbolic_no_inverse = parsed["no-symb-rates"];
+	auto symb_filename = bpp::Path::cropExtension(bnet_filename) + ".symb";
 
 	// **** args done, lets get to work ****
 
@@ -268,12 +289,14 @@ int main(int argc, char** argv)
 
 		if (symbolic && bpp::Path::exists(symb_filename))
 		{
-			compute_symbolic(std::move(context), std::move(model), std::move(st), std::move(r), symb_filename);
+			compute_symbolic(context, std::move(model), std::move(st), std::move(r), symb_filename,
+							 symbolic_no_inverse);
 		}
 		else
 		{
-			compute_no_symbolic(std::move(context), std::move(model), std::move(st), std::move(r),
-								symbolic ? symb_filename : std::optional<std::string>(std::nullopt));
+			compute_no_symbolic(context, std::move(model), std::move(st), std::move(r),
+								symbolic ? symb_filename : std::optional<std::string>(std::nullopt),
+								symbolic_no_inverse);
 		}
 	}
 	catch (std::exception& e)

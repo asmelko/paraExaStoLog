@@ -80,7 +80,7 @@ void transition_rates::generate_normal(real_t mean, real_t std, const std::vecto
 		} while (num < 0 && count < 1000);
 
 		if (num < 0)
-			throw std::runtime_error("could not generate transition rates");
+			throw std::runtime_error("could not generate postive transition rates with the provided mean and std");
 
 		return num;
 	};

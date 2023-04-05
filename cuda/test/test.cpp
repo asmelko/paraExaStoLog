@@ -578,9 +578,9 @@ TEST(serializer, toy)
 
 	std::string filename = "f.txt";
 
-	persistent_solution::serialize(filename, s);
+	persistent_solution::serialize(filename, s, true);
 
-	auto d = persistent_solution::deserialize(filename);
+	auto d = persistent_solution::deserialize(filename, true);
 
 	ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
 }
@@ -610,21 +610,27 @@ TEST(serializer, zanudo)
 
 	s.solve();
 
-	std::string filename = "f.txt";
+	std::string filename = "z.txt";
 
 	Timer t;
 
-	t.Start();
-	persistent_solution::serialize(filename, s);
-	t.Stop();
-	std::cout << "Serialization duration: " << t.Millisecs() << "ms" << std::endl;
+	for (int i = 0; i < 2; i++)
+	{
+		bool no_inverse = i == 0;
+		std::string what = i == 0 ? "without inverse" : "with inverse";
 
-	t.Start();
-	auto d = persistent_solution::deserialize(filename);
-	t.Stop();
-	std::cout << "Deserialization duration: " << t.Millisecs() << "ms" << std::endl;
+		t.Start();
+		persistent_solution::serialize(filename, s, no_inverse);
+		t.Stop();
+		std::cout << "Serialization duration " + what + ": " << t.Millisecs() << "ms" << std::endl;
 
-	ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
+		t.Start();
+		auto d = persistent_solution::deserialize(filename, no_inverse);
+		t.Stop();
+		std::cout << "Serialization duration " + what + ": " << t.Millisecs() << "ms" << std::endl;
+
+		ASSERT_TRUE(persistent_solution::check_are_equal(s, d));
+	}
 }
 
 TEST(symbolic_no_refactor, toy)
@@ -653,32 +659,37 @@ TEST(symbolic_no_refactor, toy)
 
 	std::string filename = "f.txt";
 
-	persistent_solution::serialize(filename, s);
+	for (int i = 0; i < 2; i++)
+	{
+		bool no_inverse = i == 0;
 
-	auto d = persistent_solution::deserialize(filename);
+		persistent_solution::serialize(filename, s, no_inverse);
 
-	initial_state st2(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
+		auto d = persistent_solution::deserialize(filename, no_inverse);
 
-	solver s2(context, d, r, std::move(st2));
-	s2.solve();
+		initial_state st2(model.nodes, { "A", "C", "D" }, { false, false, false }, 1.f);
 
-	thrust::host_vector<float> final_state = s2.final_state;
+		solver s2(context, d, r, std::move(st2));
+		s2.solve();
 
-	h_idxvec nonzero_indices(final_state.size());
-	thrust::host_vector<float> nonzero_data(final_state.size());
+		thrust::host_vector<float> final_state = s2.final_state;
 
-	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
-								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
-	nonzero_indices.resize(i_end - nonzero_indices.begin());
+		h_idxvec nonzero_indices(final_state.size());
+		thrust::host_vector<float> nonzero_data(final_state.size());
 
-	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
-							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
-							  nonzero_data.begin());
-	nonzero_data.resize(d_end - nonzero_data.begin());
+		auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+									 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+									 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+		nonzero_indices.resize(i_end - nonzero_indices.begin());
 
-	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(2, 4));
-	ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.5f)));
+		auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+								  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+								  nonzero_data.begin());
+		nonzero_data.resize(d_end - nonzero_data.begin());
+
+		ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(2, 4));
+		ASSERT_THAT(nonzero_data, ::testing::Each(::testing::Eq(0.5f)));
+	}
 }
 
 TEST(symbolic_no_refactor, cohen)
@@ -690,7 +701,7 @@ TEST(symbolic_no_refactor, cohen)
 
 	transition_rates r(model);
 	r.generate_uniform({}, {});
-	
+
 	Timer t;
 
 	t.Start();
@@ -715,40 +726,194 @@ TEST(symbolic_no_refactor, cohen)
 
 	std::string filename = "f.txt";
 
-	persistent_solution::serialize(filename, s);
+	for (int i = 0; i < 2; i++)
+	{
+		bool no_inverse = i == 0;
+		std::string what = i == 0 ? "without inverse" : "with inverse";
 
-	t.Start();
+		persistent_solution::serialize(filename, s, no_inverse);
 
-	auto d = persistent_solution::deserialize(filename);
+		t.Start();
 
-	initial_state st2(
+		auto d = persistent_solution::deserialize(filename, no_inverse);
+
+		initial_state st2(model.nodes,
+						  { "ECMicroenv", "DNAdamage", "Metastasis", "Migration", "Invasion", "EMT", "Apoptosis",
+							"Notch_pthw", "p53" },
+						  { true, true, false, false, false, false, false, true, false }, 1.f);
+
+		solver s2(context, d, r, std::move(st2));
+		s2.solve();
+
+		t.Stop();
+
+		std::cout << "Duration second symbolic run " + what + ": " << t.Millisecs() << "ms" << std::endl;
+
+		thrust::host_vector<float> final_state = s2.final_state;
+
+		h_idxvec nonzero_indices(final_state.size());
+		thrust::host_vector<float> nonzero_data(final_state.size());
+
+		auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+									 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+									 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+		nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+		auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+								  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+								  nonzero_data.begin());
+		nonzero_data.resize(d_end - nonzero_data.begin());
+
+		ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
+		ASSERT_THAT(nonzero_data,
+					::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+										 { 0.66441368, 0.1986147, 0.13697163 }));
+	}
+}
+
+TEST(symbolic_with_refactor, toy)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/toy.bnet");
+
+	cu_context context;
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	initial_state st(model.nodes);
+
+	transition_rates r(model);
+	r.generate_uniform({}, {});
+
+	solver s(context, table, std::move(g), r, st);
+
+	s.solve();
+
+	std::string filename = "f.txt";
+
+	for (int i = 0; i < 2; i++)
+	{
+		bool no_inverse = i == 0;
+
+		persistent_solution::serialize(filename, s, no_inverse);
+
+		auto d = persistent_solution::deserialize(filename, no_inverse);
+
+		transition_rates r2(model);
+		r2.generate_uniform({}, { { "C", 2.f } });
+
+		solver s2(context, d, r2, st);
+		s2.solve();
+
+		thrust::host_vector<float> final_state = s2.final_state;
+
+		h_idxvec nonzero_indices(final_state.size());
+		thrust::host_vector<float> nonzero_data(final_state.size());
+
+		auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+									 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+									 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+		nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+		auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+								  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+								  nonzero_data.begin());
+		nonzero_data.resize(d_end - nonzero_data.begin());
+
+		ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(1, 2, 4));
+		ASSERT_THAT(nonzero_data,
+					::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+										 { 0.5000000000000009, 0.22916666666666666, 0.2708333333333333 }));
+	}
+}
+
+TEST(symbolic_with_refactor, cohen)
+{
+	model_builder builder;
+	auto model = builder.construct_model("data/EMT_cohen_ModNet.bnet");
+
+	Timer t;
+
+	initial_state st(
 		model.nodes,
 		{ "ECMicroenv", "DNAdamage", "Metastasis", "Migration", "Invasion", "EMT", "Apoptosis", "Notch_pthw", "p53" },
 		{ true, true, false, false, false, false, false, true, false }, 1.f);
 
-	solver s2(context, d, r, std::move(st2));
-	s2.solve();
+	cu_context context;
+
+	t.Start();
+
+	transition_table table(context, model);
+
+	table.construct_table();
+
+	transition_graph g(context, table.rows, table.cols, table.indptr);
+
+	g.find_terminals();
+
+	transition_rates r(model);
+	r.generate_uniform();
+
+	solver s(context, table, std::move(g), std::move(r), st);
+
+	s.solve();
 
 	t.Stop();
 
-	std::cout << "Duration second symbolic run: " << t.Millisecs() << "ms" << std::endl;
+	std::cout << "Duration first run: " << t.Millisecs() << "ms" << std::endl;
 
-	thrust::host_vector<float> final_state = s2.final_state;
+	std::string filename = "f.txt";
 
-	h_idxvec nonzero_indices(final_state.size());
-	thrust::host_vector<float> nonzero_data(final_state.size());
+	for (int i = 0; i < 2; i++)
+	{
+		bool no_inverse = i == 0;
+		std::string what = i == 0 ? "without inverse" : "with inverse";
 
-	auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
-								 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
-								 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
-	nonzero_indices.resize(i_end - nonzero_indices.begin());
+		persistent_solution::serialize(filename, s, no_inverse);
 
-	auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
-							  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
-							  nonzero_data.begin());
-	nonzero_data.resize(d_end - nonzero_data.begin());
+		t.Start();
 
-	ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
-	ASSERT_THAT(nonzero_data, ::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
-												   { 0.66441368, 0.1986147, 0.13697163 }));
+		auto d = persistent_solution::deserialize(filename, no_inverse);
+
+		transition_rates r2(model);
+		r2.generate_uniform({ { "DNAdamage", 2.f },
+							  { "ECMicroenv", 3.f },
+							  { "TGFb_pthw", 4.f },
+							  { "Apoptosis", 300.f },
+							  { "Ecadh", 1000.f } },
+							{ { "TGFb_pthw", 933.f }, { "Apoptosis", 544.f }, { "Ecadh", 3.f } });
+
+		solver s2(context, d, r2, st);
+		s2.solve();
+
+		t.Stop();
+
+		std::cout << "Duration second symbolic run " + what + ": " << t.Millisecs() << "ms" << std::endl;
+
+		thrust::host_vector<float> final_state = s2.final_state;
+
+		h_idxvec nonzero_indices(final_state.size());
+		thrust::host_vector<float> nonzero_data(final_state.size());
+
+		auto i_end = thrust::copy_if(thrust::make_counting_iterator<index_t>(0),
+									 thrust::make_counting_iterator<index_t>((index_t)final_state.size()),
+									 final_state.begin(), nonzero_indices.begin(), thrust::identity<float>());
+		nonzero_indices.resize(i_end - nonzero_indices.begin());
+
+		auto d_end = thrust::copy(thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.begin()),
+								  thrust::make_permutation_iterator(final_state.begin(), nonzero_indices.end()),
+								  nonzero_data.begin());
+		nonzero_data.resize(d_end - nonzero_data.begin());
+
+		ASSERT_THAT(nonzero_indices, ::testing::ElementsAre(206719, 790915, 803203));
+		ASSERT_THAT(nonzero_data,
+					::testing::Pointwise(::testing::FloatNear(128 * std::numeric_limits<float>::epsilon()),
+										 { 0.659006, 0.202294, 0.138699 }));
+	}
 }

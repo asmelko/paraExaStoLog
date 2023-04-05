@@ -1,4 +1,5 @@
 #include <cooperative_groups.h>
+#include <cusolverRf.h>
 
 #include <thrust/adjacent_difference.h>
 #include <thrust/copy.h>
@@ -6,6 +7,7 @@
 #include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
 #include <thrust/partition.h>
+#include <thrust/sequence.h>
 #include <thrust/set_operations.h>
 #include <thrust/sort.h>
 #include <thrust/unique.h>
@@ -246,12 +248,180 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	CHECK_CUDA(cudaDeviceSynchronize());
 }
 
+sparse_csr_matrix refactor(sparse_csr_matrix&& A, const sparse_csr_matrix& B, host_sparse_csr_matrix& M)
+{
+	d_idxvec l_indptr(M.indptr.size());
+	d_idxvec u_indptr(M.indptr.size());
+
+	d_idxvec lu_indices(M.nnz());
+	thrust::device_vector<double> lu_data(M.nnz());
+
+	d_idxvec M_indptr = M.indptr;
+	d_idxvec M_indices = M.indices;
+	d_idxvec M_data = M.data;
+
+	thrust::device_vector<double> A_data = A.data;
+
+	// indptr
+	{
+		thrust::for_each_n(thrust::make_counting_iterator<index_t>(0), M.n(),
+						   [M_indptr = M_indptr.data().get(), M_indices = M_indices.data().get(),
+							l_indptr = l_indptr.data().get(), u_indptr = u_indptr.data().get()] __device__(index_t i) {
+							   auto begin = M_indptr[i];
+							   auto end = M_indptr[i + 1];
+
+							   index_t l_size = 0;
+							   for (index_t idx = begin; idx < end; idx++)
+								   if (M_indices[idx] < i)
+									   l_size++;
+
+							   l_indptr[i + 1] = l_size;
+							   u_indptr[i + 1] = end - begin - l_size;
+						   });
+
+		l_indptr[0] = 0;
+		u_indptr[0] = 0;
+
+		thrust::inclusive_scan(l_indptr.begin(), l_indptr.end(), l_indptr.begin());
+		thrust::inclusive_scan(u_indptr.begin(), u_indptr.end(), u_indptr.begin());
+	}
+
+	size_t l_nnz = l_indptr.back();
+	size_t u_nnz = u_indptr.back();
+
+	// indices and data
+	{
+		thrust::for_each_n(thrust::make_counting_iterator<index_t>(0), M.n(),
+						   [M_indptr = M_indptr.data().get(), M_indices = M_indices.data().get(),
+							M_data = M_data.data().get(), l_indptr = l_indptr.data().get(),
+							u_indptr = u_indptr.data().get(), l_indices = lu_indices.data().get(),
+							u_indices = lu_indices.data().get() + l_nnz, l_data = lu_data.data().get(),
+							u_data = lu_data.data().get() + l_nnz] __device__(index_t i) {
+							   auto begin = M_indptr[i];
+							   auto end = M_indptr[i + 1];
+
+							   auto l_begin = l_indptr[i];
+							   auto u_begin = u_indptr[i];
+
+							   index_t l_idx = 0;
+							   index_t u_idx = 0;
+							   for (index_t idx = begin; idx < end; idx++)
+							   {
+								   index_t index = M_indices[idx];
+								   if (index < i)
+								   {
+									   l_indices[l_begin + l_idx] = index;
+									   l_data[l_begin + l_idx] = M_data[idx];
+									   l_idx++;
+								   }
+								   else
+								   {
+									   u_indices[u_begin + u_idx] = index;
+									   u_data[u_begin + u_idx] = M_data[idx];
+									   u_idx++;
+								   }
+							   }
+						   });
+	}
+
+
+	cusolverRfHandle_t cusolverRfH = NULL;
+	const cusolverRfFactorization_t fact_alg = CUSOLVERRF_FACTORIZATION_ALG0;		// default
+	const cusolverRfTriangularSolve_t solve_alg = CUSOLVERRF_TRIANGULAR_SOLVE_ALG1; // default
+	double nzero = 0.0;
+	double nboost = 0.0;
+
+	CHECK_CUSOLVER(cusolverRfCreate(&cusolverRfH));
+
+	// numerical values for checking "zeros" and for boosting.
+	CHECK_CUSOLVER(cusolverRfSetNumericProperties(cusolverRfH, nzero, nboost));
+
+	// choose algorithm for refactorization and solve
+	CHECK_CUSOLVER(cusolverRfSetAlgs(cusolverRfH, fact_alg, solve_alg));
+
+	// matrix mode: L and U are CSR format, and L has implicit unit diagonal
+	CHECK_CUSOLVER(
+		cusolverRfSetMatrixFormat(cusolverRfH, CUSOLVERRF_MATRIX_FORMAT_CSR, CUSOLVERRF_UNIT_DIAGONAL_ASSUMED_L));
+
+	//// fast mode for matrix assembling
+	//CHECK_CUSOLVER(cusolverRfSetResetValuesFastMode(cusolverRfH, CUSOLVERRF_RESET_VALUES_FAST_MODE_ON));
+
+	d_idxvec p(M.n()), q(M.n());
+	thrust::sequence(p.begin(), p.end());
+	thrust::sequence(q.begin(), q.end());
+
+	CHECK_CUSOLVER(cusolverRfSetupDevice(
+		A.n(), A.nnz(), A.indptr.data().get(), A.indices.data().get(), A_data.data().get(), l_nnz,
+		l_indptr.data().get(), lu_indices.data().get(), lu_data.data().get(), u_nnz, u_indptr.data().get(),
+		lu_indices.data().get() + l_nnz, lu_data.data().get() + l_nnz, p.data().get(), q.data().get(), cusolverRfH));
+	CHECK_CUDA(cudaDeviceSynchronize());
+
+	CHECK_CUSOLVER(cusolverRfAnalyze(cusolverRfH));
+	CHECK_CUDA(cudaDeviceSynchronize());
+
+	//CHECK_CUSOLVER(cusolverRfResetValues(A.n(), A.nnz(), A.indptr.data().get(), A.indices.data().get(),
+	//									 A_data.data().get(), p.data().get(), q.data().get(), cusolverRfH));
+	//CHECK_CUDA(cudaDeviceSynchronize());
+
+	CHECK_CUSOLVER(cusolverRfRefactor(cusolverRfH));
+	CHECK_CUDA(cudaDeviceSynchronize());
+
+	index_t n = A.n();
+	sparse_csr_matrix X;
+
+	h_idxvec hb_indptr = B.indptr;
+	h_idxvec hb_indices = B.indices;
+
+	thrust::device_vector<double> z_vec(n);
+
+	h_idxvec hx_indptr(B.indptr.size());
+	hx_indptr[0] = 0;
+
+	for (int b_idx = 0; b_idx < B.n(); b_idx++)
+	{
+		thrust::device_vector<double> b_vec(n, 0.f);
+		auto start = hb_indptr[b_idx];
+		auto end = hb_indptr[b_idx + 1];
+		thrust::copy(B.data.begin() + start, B.data.begin() + end,
+					 thrust::make_permutation_iterator(b_vec.begin(), B.indices.begin() + start));
+
+		CHECK_CUSOLVER(cusolverRfSolve(cusolverRfH, p.data().get(), q.data().get(), 1, z_vec.data().get(), A.n(),
+									   b_vec.data().get(), A.n()));
+
+		CHECK_CUDA(cudaDeviceSynchronize());
+
+		d_datvec x_vec = std::move(b_vec);
+
+		auto x_nnz = thrust::count_if(x_vec.begin(), x_vec.end(), [] __device__(real_t x) { return x != 0.f; });
+
+		auto size_before = X.indices.size();
+		X.indices.resize(X.indices.size() + x_nnz);
+		X.data.resize(X.data.size() + x_nnz);
+
+		hx_indptr[b_idx + 1] = hx_indptr[b_idx] + x_nnz;
+
+		thrust::copy_if(thrust::make_zip_iterator(x_vec.begin(), thrust::make_counting_iterator<index_t>(0)),
+						thrust::make_zip_iterator(x_vec.end(), thrust::make_counting_iterator<index_t>(x_vec.size())),
+						thrust::make_zip_iterator(X.data.begin() + size_before, X.indices.begin() + size_before),
+						[] __device__(thrust::tuple<real_t, index_t> x) { return thrust::get<0>(x) != 0.f; });
+	}
+
+	X.indptr = hx_indptr;
+
+	CHECK_CUSOLVER(cusolverRfDestroy(cusolverRfH));
+
+	return X;
+}
+
 sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const d_idxvec& scc_offsets,
-							   const sparse_csr_matrix& B)
+							   const sparse_csr_matrix& B, host_sparse_csr_matrix& M, bool should_refactor)
 {
 	index_t n = A.n();
 
 	sort_sparse_matrix(context.cusparse_handle, A);
+
+	if (should_refactor)
+		return refactor(std::move(A), B, M);
 
 	d_idxvec M_indptr, M_indices;
 	d_datvec M_data;
@@ -357,6 +527,10 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_U));
 	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_L));
 	CHECK_CUSPARSE(cusparseDestroyBsrsv2Info(info_U));
+
+	M.indptr = M_indptr;
+	M.indices = M_indices;
+	M.data = M_data;
 
 	return X;
 }

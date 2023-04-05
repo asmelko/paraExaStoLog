@@ -27,7 +27,7 @@ void write_content(bpp::File& f, const thrust::host_vector<T>& h)
 	f.write(h.data(), h.size());
 }
 
-void persistent_solution::serialize(const std::string& file, const solver& s)
+void persistent_solution::serialize(const std::string& file, const solver& s, bool no_inverse)
 {
 	bpp::File f(file);
 	f.open("wb");
@@ -50,6 +50,18 @@ void persistent_solution::serialize(const std::string& file, const solver& s)
 		write_size(f, s.solution_nonterm.indptr);
 		write_size(f, s.solution_nonterm.indices);
 		write_size(f, s.solution_nonterm.data);
+
+		if (no_inverse)
+		{
+			size_t zero[] = { 0, 0, 0 };
+			f.write(zero, 3);
+		}
+		else
+		{
+			write_size(f, s.n_inverse_.indptr);
+			write_size(f, s.n_inverse_.indices);
+			write_size(f, s.n_inverse_.data);
+		}
 	}
 
 	// second write contents
@@ -70,6 +82,13 @@ void persistent_solution::serialize(const std::string& file, const solver& s)
 		write_content(f, s.solution_nonterm.indptr);
 		write_content(f, s.solution_nonterm.indices);
 		write_content(f, s.solution_nonterm.data);
+
+		if (!no_inverse)
+		{
+			write_content(f, s.n_inverse_.indptr);
+			write_content(f, s.n_inverse_.indices);
+			write_content(f, s.n_inverse_.data);
+		}
 	}
 
 	f.close();
@@ -83,7 +102,7 @@ T* read_content(T* data, vec_t& v)
 	return data + v.size();
 }
 
-persistent_data persistent_solution::deserialize(const std::string& file)
+persistent_data persistent_solution::deserialize(const std::string& file, bool no_inverse)
 {
 	persistent_data d;
 
@@ -94,7 +113,7 @@ persistent_data persistent_solution::deserialize(const std::string& file)
 
 	size_t* sizes = reinterpret_cast<size_t*>(data);
 
-	if (f.length() < 13 * sizeof(size_t))
+	if (f.length() < 16 * sizeof(size_t))
 		throw std::runtime_error("Persistend data file is corrupted");
 
 	d.rows.resize(*sizes++);
@@ -114,13 +133,24 @@ persistent_data persistent_solution::deserialize(const std::string& file)
 	d.solution_nonterm.indices.resize(*sizes++);
 	d.solution_nonterm.data.resize(*sizes++);
 
+	size_t n_inv_indptr_size = *sizes++;
+	size_t n_inv_indices_size = *sizes++;
+	size_t n_inv_data_size = *sizes++;
+
+	if (!no_inverse)
+	{
+		d.n_inverse.indptr.resize(n_inv_indptr_size);
+		d.n_inverse.indices.resize(n_inv_indices_size);
+		d.n_inverse.data.resize(n_inv_data_size);
+	}
+
 	size_t idx_size = d.rows.size() + d.cols.size() + d.indptr.size() + d.ordered_vertices.size()
 					  + d.terminals_offsets.size() + d.nonterminals_offsets.size() + d.solution_term.indptr.size()
 					  + d.solution_term.indices.size() + d.solution_nonterm.indptr.size()
-					  + d.solution_nonterm.indices.size();
-	size_t real_size = d.rates.size() + d.solution_term.data.size() + d.solution_nonterm.data.size();
+					  + d.solution_nonterm.indices.size() + n_inv_indptr_size + n_inv_indices_size;
+	size_t real_size = d.rates.size() + d.solution_term.data.size() + d.solution_nonterm.data.size() + n_inv_data_size;
 
-	size_t total_size = idx_size * sizeof(index_t) + real_size * sizeof(real_t) + 13 * sizeof(size_t);
+	size_t total_size = idx_size * sizeof(index_t) + real_size * sizeof(real_t) + 16 * sizeof(size_t);
 
 	if (f.length() != total_size)
 		throw std::runtime_error("Persistend data file is corrupted");
@@ -152,7 +182,18 @@ persistent_data persistent_solution::deserialize(const std::string& file)
 	idx_data = read_content(idx_data, d.solution_nonterm.indices);
 
 	real_data = reinterpret_cast<real_t*>(idx_data);
-	read_content(real_data, d.solution_nonterm.data);
+	real_data = read_content(real_data, d.solution_nonterm.data);
+
+	if (!no_inverse)
+	{
+		idx_data = reinterpret_cast<index_t*>(real_data);
+
+		idx_data = read_content(idx_data, d.n_inverse.indptr);
+		idx_data = read_content(idx_data, d.n_inverse.indices);
+
+		real_data = reinterpret_cast<real_t*>(idx_data);
+		real_data = read_content(real_data, d.n_inverse.data);
+	}
 
 	f.close();
 
@@ -180,7 +221,7 @@ bool compare(const thrust::device_vector<T>& l, const thrust::device_vector<T>& 
 	return compare(hl, hr);
 }
 
-bool persistent_solution::has_incompatible_zero_rates(const persistent_data& stored, const d_datvec& new_rates)
+bool persistent_solution::has_compatible_zero_rates(const persistent_data& stored, const d_datvec& new_rates)
 {
 	thrust::device_vector<bool> are_compatible(1, true);
 
@@ -208,7 +249,7 @@ bool persistent_solution::are_same(const persistent_data& stored, const d_datvec
 	thrust::for_each_n(
 		thrust::make_counting_iterator(0), new_rates.size(),
 		[l = stored.rates.data().get(), r = new_rates.data().get(), same = same.data().get()] __device__(size_t i) {
-			if (l[0] != r[0])
+			if (l[i] != r[i])
 				same[0] = false;
 		});
 

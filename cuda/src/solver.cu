@@ -17,7 +17,8 @@ solver::solver(cu_context& context, const transition_table& t, transition_graph 
 	  rates_(std::move(r.rates)),
 	  submatrix_vertex_mapping_(ordered_vertices_.size()),
 	  symbolic_loaded_(false),
-	  should_refactor_(false)
+	  can_refactor_(false),
+	  recompute_needed(false)
 {}
 
 solver::solver(cu_context& context, persistent_data& persisted, transition_rates r, initial_state s)
@@ -33,11 +34,18 @@ solver::solver(cu_context& context, persistent_data& persisted, transition_rates
 	  submatrix_vertex_mapping_(ordered_vertices_.size()),
 	  symbolic_loaded_(true)
 {
-	should_refactor_ = !persistent_solution::are_same(persisted, rates_);
-	if (!should_refactor_)
+	recompute_needed = !persistent_solution::are_same(persisted, rates_);
+	can_refactor_ = persisted.n_inverse.nnz() != 0;
+
+	if (!recompute_needed)
 	{
 		solution_term = std::move(persisted.solution_term);
 		solution_nonterm = std::move(persisted.solution_nonterm);
+	}
+
+	if (can_refactor_)
+	{
+		n_inverse_ = std::move(persisted.n_inverse);
 	}
 }
 
@@ -244,7 +252,8 @@ void solver::solve_nonterminal_part()
 			   terminals_offsets_.size() - 1, terminal_vertices_n, U.indices.size(), B_t.indptr.data().get(),
 			   B_t.indices.data().get(), B_t.data.data().get(), terminal_vertices_n, nonterminal_vertices_n, B.nnz());
 
-	sparse_csr_matrix X = solve_system(context_, sparse_cast<cs_kind::CSR>(std::move(N)), nonterminals_offsets_, A);
+	sparse_csr_matrix X = solve_system(context_, sparse_cast<cs_kind::CSR>(std::move(N)), nonterminals_offsets_, A,
+									   n_inverse_, can_refactor_);
 
 	solution_nonterm.indptr.resize(U.indptr.size());
 	index_t nonterm_nnz = U.indptr.back() + X.indptr.back();
@@ -291,7 +300,7 @@ void solver::compute_final_states()
 
 void solver::solve()
 {
-	if (!symbolic_loaded_ || (symbolic_loaded_ && should_refactor_))
+	if (!symbolic_loaded_ || (symbolic_loaded_ && recompute_needed))
 	{
 		solve_terminal_part();
 		solve_nonterminal_part();
