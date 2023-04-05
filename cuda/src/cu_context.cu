@@ -1,6 +1,7 @@
-#include <iostream>
-
 #include "cu_context.h"
+
+#include <cuda_device_runtime_api.h>
+#include <iostream>
 
 void cuda_check(cudaError_t e, const char* file, int line)
 {

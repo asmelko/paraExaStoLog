@@ -1,4 +1,5 @@
-#include <cooperative_groups.h>
+#include "linear_system_solve.h"
+
 #include <cusolverRf.h>
 
 #include <thrust/adjacent_difference.h>
@@ -14,10 +15,7 @@
 
 #include "diagnostics.h"
 #include "kernels/kernels.h"
-#include "linear_system_solve.h"
 #include "sparse_utils.h"
-
-namespace cg = cooperative_groups;
 
 constexpr size_t big_scc_threshold = 2;
 
@@ -118,7 +116,6 @@ index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_si
 		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) <= big_scc_threshold; });
 
 	index_t small_sccs = thrust::get<1>(part_point.get_iterator_tuple()) - partitioned_scc_offsets.begin();
-
 
 	// we need to do this because of terminals that were stored before nonterminals
 	index_t base_offset = scc_offsets.front();
