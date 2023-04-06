@@ -1,5 +1,6 @@
 ﻿#include <thrust/execution_policy.h>
 #include <thrust/for_each.h>
+#include <thrust/zip_function.h>
 
 #include "bpplib/system/file.hpp"
 #include "bpplib/system/mmap_file.hpp"
@@ -223,37 +224,24 @@ bool compare(const thrust::device_vector<T>& l, const thrust::device_vector<T>& 
 
 bool persistent_solution::has_compatible_zero_rates(const persistent_data& stored, const d_datvec& new_rates)
 {
-	thrust::device_vector<bool> are_compatible(1, true);
-
 	if (stored.rates.size() != new_rates.size())
 		throw std::runtime_error("symbolic data dimensions do not match model dimensions");
 
-	thrust::for_each_n(thrust::make_counting_iterator(0), new_rates.size(),
-					   [old_rates = stored.rates.data().get(), new_rates = new_rates.data().get(),
-						are_compatible = are_compatible.data().get()] __device__(size_t i) {
-						   if ((old_rates[i] == 0.f && new_rates[i] != 0.f)
-							   || (new_rates[i] == 0.f && old_rates[i] != 0.f))
-							   are_compatible[0] = false;
-					   });
+	auto it = thrust::mismatch(stored.rates.begin(), stored.rates.end(), new_rates.begin(), [] __device__ (real_t x, real_t y) {
+		return (x == 0.f && y == 0.f) || (x != 0.f && y != 0.f);
+	});
 
-	return are_compatible[0];
+	return it.first == stored.rates.end();
 }
 
 bool persistent_solution::are_same(const persistent_data& stored, const d_datvec& new_rates)
 {
-	thrust::device_vector<bool> same(1, true);
-
 	if (stored.rates.size() != new_rates.size())
 		throw std::runtime_error("symbolic data dimensions do not match model dimensions");
 
-	thrust::for_each_n(
-		thrust::make_counting_iterator(0), new_rates.size(),
-		[l = stored.rates.data().get(), r = new_rates.data().get(), same = same.data().get()] __device__(size_t i) {
-			if (l[i] != r[i])
-				same[0] = false;
-		});
+	auto it = thrust::mismatch(stored.rates.begin(), stored.rates.end(), new_rates.begin());
 
-	return same[0];
+	return it.first == stored.rates.end();
 }
 
 bool persistent_solution::check_are_equal(const solver& s, const persistent_data& d)

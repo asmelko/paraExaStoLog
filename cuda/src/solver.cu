@@ -273,11 +273,7 @@ void solver::solve_nonterminal_part()
 	solution_nonterm.indices.resize(nonterm_nnz);
 	solution_nonterm.data.resize(nonterm_nnz);
 
-	thrust::transform(
-		thrust::make_zip_iterator(U.indptr.begin(), X.indptr.begin()),
-		thrust::make_zip_iterator(U.indptr.end(), X.indptr.end()), solution_nonterm.indptr.begin(),
-		[] __device__(thrust::tuple<index_t, index_t> x) { return thrust::get<0>(x) + thrust::get<1>(x); });
-
+	thrust::transform(U.indptr.begin(), U.indptr.end(), X.indptr.begin(),solution_nonterm.indptr.begin(), thrust::plus<index_t>());
 
 	// -U back to U
 	thrust::transform(U.data.begin(), U.data.end(), U.data.begin(), thrust::negate<real_t>());

@@ -4,15 +4,6 @@
 #include "transition_table.h"
 #include "utils.h"
 
-struct const_transform_ftor : public thrust::unary_function<real_t, void>
-{
-	real_t value;
-
-	const_transform_ftor(real_t value) : value(value) {}
-
-	__host__ __device__ void operator()(real_t& x) const { x = value; }
-};
-
 initial_state::initial_state(const std::vector<std::string>& node_names,
 							 const std::vector<std::string>& fixed_node_names,
 							 const std::vector<bool>& fixed_node_values, real_t fixed_probability)
@@ -63,7 +54,7 @@ initial_state::initial_state(const std::vector<std::string>& node_names,
 
 	state = d_datvec(fixed_states + nonfixed_states, (1.f - fixed_probability) / nonfixed_states);
 
-	thrust::for_each(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
-					 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
-					 const_transform_ftor(fixed_probability / (real_t)fixed_states));
+	thrust::fill(thrust::make_permutation_iterator(state.begin(), fixed_indices.begin()),
+				 thrust::make_permutation_iterator(state.begin(), fixed_indices.end()),
+				 fixed_probability / (real_t)fixed_states);
 }
