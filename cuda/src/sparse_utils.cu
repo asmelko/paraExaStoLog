@@ -205,6 +205,92 @@ d_datvec mvmul(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_d
 	return y;
 }
 
+d_datvec sparse2dense(cusparseHandle_t handle, sparse_csr_matrix& M)
+{
+	auto rows = M.h;
+	auto cols = M.w;
+
+	cusparseSpMatDescr_t matM;
+	cusparseDnMatDescr_t matDn;
+	CHECK_CUSPARSE(cusparseCreateCsr(&matM, rows, cols, M.nnz(), M.indptr.data().get(), M.indices.data().get(),
+									 M.data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+									 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+	d_datvec mat_dn(rows * cols);
+	CHECK_CUSPARSE(cusparseCreateDnMat(&matDn, rows, cols, rows, mat_dn.data().get(), CUDA_R_32F, CUSPARSE_ORDER_COL));
+
+	size_t buffer_size;
+	CHECK_CUSPARSE(
+		cusparseSparseToDense_bufferSize(handle, matM, matDn, CUSPARSE_SPARSETODENSE_ALG_DEFAULT, &buffer_size));
+
+	thrust::device_vector<char> buffer(buffer_size);
+
+	CHECK_CUSPARSE(cusparseSparseToDense(handle, matM, matDn, CUSPARSE_SPARSETODENSE_ALG_DEFAULT, buffer.data().get()));
+
+	return mat_dn;
+}
+
+sparse_csr_matrix dense2sparse(cusparseHandle_t handle, d_datvec mat_dn, index_t rows, index_t cols)
+{
+	sparse_csr_matrix M;
+
+	cusparseSpMatDescr_t matM;
+	cusparseDnMatDescr_t matDn;
+	CHECK_CUSPARSE(cusparseCreateCsr(&matM, 0, 0, 0, nullptr, nullptr, nullptr, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+									 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+	CHECK_CUSPARSE(cusparseCreateDnMat(&matDn, rows, cols, rows, mat_dn.data().get(), CUDA_R_32F, CUSPARSE_ORDER_COL));
+
+	size_t buffer_size;
+	CHECK_CUSPARSE(
+		cusparseDenseToSparse_bufferSize(handle, matDn, matM, CUSPARSE_DENSETOSPARSE_ALG_DEFAULT, &buffer_size));
+
+	thrust::device_vector<char> buffer(buffer_size);
+
+	CHECK_CUSPARSE(
+		cusparseDenseToSparse_analysis(handle, matDn, matM, CUSPARSE_DENSETOSPARSE_ALG_DEFAULT, buffer.data().get()));
+
+	int64_t rows_, cols_, nnz;
+
+	CHECK_CUSPARSE(cusparseSpMatGetSize(matM, &rows_, &cols_, &nnz));
+
+	M.indptr.resize(rows + 1);
+	M.indices.resize(nnz);
+	M.data.resize(nnz);
+
+	cusparseCsrSetPointers(matM, M.indptr.data().get(), M.indices.data().get(), M.data.data().get());
+
+	CHECK_CUSPARSE(
+		cusparseDenseToSparse_convert(handle, matDn, matM, CUSPARSE_DENSETOSPARSE_ALG_DEFAULT, buffer.data().get()));
+
+	return M;
+}
+
+void dense_lu(cusolverDnHandle_t handle, d_datvec& A, index_t rows, index_t cols)
+{
+	size_t d_lwork = 0; /* size of workspace */
+	size_t h_lwork = 0; /* size of workspace */
+
+	cusolverDnParams_t params;
+	CHECK_CUSOLVER(cusolverDnCreateParams(&params));
+	CHECK_CUSOLVER(cusolverDnSetAdvOptions(params, CUSOLVERDN_GETRF, CUSOLVER_ALG_0));
+
+	CHECK_CUSOLVER(cusolverDnXgetrf_bufferSize(handle, params, rows, cols, CUDA_R_32F, A.data().get(), rows, CUDA_R_32F,
+											   &d_lwork, &h_lwork));
+
+	thrust::device_vector<char> d_buffer(d_lwork);
+	thrust::host_vector<char> h_buffer(h_lwork);
+	thrust::device_vector<int> info(1);
+
+	CHECK_CUSOLVER(cusolverDnXgetrf(handle, params, rows, cols, CUDA_R_32F, A.data().get(), rows, nullptr, CUDA_R_32F,
+									d_buffer.data().get(), d_lwork, h_buffer.data(), h_lwork, info.data().get()));
+
+	if (info[0] != 0)
+		std::cout << "unexpected error at dense LU" << std::endl;
+
+	CHECK_CUSOLVER(cusolverDnDestroyParams(params));
+}
+
 void host_lu(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h, host_sparse_csr_matrix& l,
 			 host_sparse_csr_matrix& u)
 {

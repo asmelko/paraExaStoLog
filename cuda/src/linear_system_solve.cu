@@ -19,6 +19,33 @@
 
 constexpr size_t big_scc_threshold = 2;
 
+host_sparse_csr_matrix dense_lu_wrapper(cu_context& context, h_idxvec&& indptr, h_idxvec&& indices, h_datvec&& data)
+{
+	sparse_csr_matrix M;
+	M.indptr = std::move(indptr);
+	M.indices = std::move(indices);
+	M.data = std::move(data);
+
+	index_t rows = M.n() - 1;
+	index_t cols = thrust::reduce(M.indices.begin(), M.indices.end(), 0, thrust::maximum<index_t>());
+
+	M.h = rows;
+	M.w = cols;
+	d_datvec dense_M = sparse2dense(context.cusparse_handle, M);
+
+	dense_lu(context.cusolver_dn_handle, dense_M, rows, cols);
+
+	M = dense2sparse(context.cusparse_handle, dense_M, rows, cols);
+
+	host_sparse_csr_matrix h_M;
+
+	h_M.indptr = std::move(M.indptr);
+	h_M.indices = std::move(M.indices);
+	h_M.data = std::move(M.data);
+
+	return h_M;
+}
+
 host_sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, h_idxvec&& indptr, h_idxvec&& rows, h_datvec&& data)
 {
 	host_sparse_csr_matrix M;
@@ -130,7 +157,7 @@ index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_si
 	return small_sccs;
 }
 
-std::vector<host_sparse_csr_matrix> lu_big_nnz(cusolverSpHandle_t handle, index_t big_scc_start,
+std::vector<host_sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_start,
 											   const d_idxvec& scc_sizes, const d_idxvec& scc_offsets,
 											   const d_idxvec& A_indptr, const d_idxvec& A_indices,
 											   const d_datvec& A_data, d_idxvec& As_indptr)
@@ -170,9 +197,11 @@ std::vector<host_sparse_csr_matrix> lu_big_nnz(cusolverSpHandle_t handle, index_
 
 						 h_datvec scc_data(data.begin() + base, data.begin() + base + scc_nnz);
 
-
-						 host_sparse_csr_matrix M = host_lu_wrapper(handle, std::move(scc_indptr),
+						 host_sparse_csr_matrix M = dense_lu_wrapper(context, std::move(scc_indptr),
 																	std::move(scc_indices), std::move(scc_data));
+
+						//  host_sparse_csr_matrix M = host_lu_wrapper(handle, std::move(scc_indptr),
+						// 											std::move(scc_indices), std::move(scc_data));
 
 						 thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
 										   [scc_offset](index_t x) { return x + scc_offset; });
@@ -248,7 +277,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 	// without waiting we compute nnz of non triv
 	{
 		t.Start();
-		lus = lu_big_nnz(context.cusolver_handle, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
+		lus = lu_big_nnz(context, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
 						 A_indices, A_data, As_indptr);
 		t.Stop();
 		diag_print("LU (big nnz): ", t.Millisecs(), "ms");

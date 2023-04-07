@@ -90,3 +90,7 @@ void create_minor(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, 
 				  const index_t remove_vertex);
 
 void sort_sparse_matrix(cusparseHandle_t handle, sparse_csr_matrix& N);
+
+void dense_lu(cusolverDnHandle_t handle, d_datvec& A, index_t rows, index_t cols);
+sparse_csr_matrix dense2sparse(cusparseHandle_t handle, d_datvec mat_dn, index_t rows, index_t cols);
+d_datvec sparse2dense(cusparseHandle_t handle, sparse_csr_matrix& M);

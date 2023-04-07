@@ -35,10 +35,12 @@ cu_context::cu_context()
 {
 	CHECK_CUSPARSE(cusparseCreate(&cusparse_handle));
 	CHECK_CUSOLVER(cusolverSpCreate(&cusolver_handle));
+	CHECK_CUSOLVER(cusolverDnCreate(&cusolver_dn_handle));
 }
 
 cu_context::~cu_context()
 {
 	CHECK_CUSPARSE(cusparseDestroy(cusparse_handle));
 	CHECK_CUSOLVER(cusolverSpDestroy(cusolver_handle));
+	CHECK_CUSOLVER(cusolverDnDestroy(cusolver_dn_handle));
 }

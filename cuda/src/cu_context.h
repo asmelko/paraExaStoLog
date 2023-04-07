@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cusolverDn.h>
 #include <cusolverSp.h>
 #include <cusparse.h>
 
@@ -15,6 +16,7 @@ struct cu_context
 {
 	cusparseHandle_t cusparse_handle = nullptr;
 	cusolverSpHandle_t cusolver_handle = nullptr;
+	cusolverDnHandle_t cusolver_dn_handle = nullptr;
 
 	cu_context();
 	~cu_context();
