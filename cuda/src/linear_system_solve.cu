@@ -19,43 +19,45 @@
 
 constexpr size_t big_scc_threshold = 2;
 
-sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, index_t* indptr, index_t* indices,
-								   real_t* data)
+sparse_csr_matrix dense_lu_wrapper(cu_context& context, cudaStream_t stream, index_t n, index_t nnz, index_t* indptr,
+								   index_t* indices, real_t* data)
 {
-	d_idxvec big_rows(nnz);
+	size_t big_rows_size = nnz;
+	index_t* big_rows;
+	CHECK_CUDA(cudaMallocAsync(&big_rows, sizeof(index_t) * big_rows_size, stream));
 
 	// modify
 	{
-		d_idxvec map;
-
-		auto end = thrust::copy_if(thrust::device, indices, indices + nnz, big_rows.begin(),
+		auto end = thrust::copy_if(thrust::cuda::par_nosync.on(stream), , indices, indices + nnz, big_rows,
 								   [n] __device__(index_t x) { return x >= n; });
 
-		big_rows.resize(end - big_rows.begin());
+		big_rows_size = end - big_rows;
 
-		if (big_rows.size())
+		if (big_rows_size)
 		{
-			thrust::sort(big_rows.begin(), big_rows.end());
-			end = thrust::unique(big_rows.begin(), big_rows.end());
+			thrust::sort(thrust::cuda::par_nosync.on(stream), big_rows, big_rows + big_rows_size);
+			end = thrust::unique(thrust::cuda::par_nosync.on(stream), big_rows, big_rows + big_rows_size);
 
-			big_rows.resize(end - big_rows.begin());
+			big_rows_size = end - big_rows;
 
-			map.resize(big_rows.back() + 1);
+			index_t* map;
+			CHECK_CUDA(cudaMallocAsync(&map, sizeof(index_t) * big_rows_size, stream));
 
-			thrust::for_each_n(thrust::counting_iterator<index_t>(0), big_rows.size(),
-							   [map = map.data().get(), big_rows = big_rows.data().get(), n] __device__(index_t i) {
-								   map[big_rows[i]] = n + i;
-							   });
+			thrust::for_each_n(thrust::cuda::par_nosync.on(stream), thrust::counting_iterator<index_t>(0),
+							   big_rows_size, [map, big_rows, n] __device__(index_t i) { map[big_rows[i]] = n + i; });
 
 			thrust::transform_if(
-				thrust::device, indices, indices + nnz, indices,
-				[map = map.data().get()] __device__(index_t x) { return map[x]; },
-				[n] __device__(index_t x) { return x >= n; });
+				thrust::cuda::par_nosync.on(stream), , indices, indices + nnz, indices,
+				[map] __device__(index_t x) { return map[x]; }, [n] __device__(index_t x) { return x >= n; });
+
+			CHECK_CUDA(cudaFreeAsync(map, stream));
 		}
 	}
 
 	index_t rows = n;
-	index_t cols = n + big_rows.size();
+	index_t cols = n + big_rows_size;
+
+	CHECK_CUDA(cudaStreamSynchronize(stream));
 
 	d_datvec dense_M = sparse2dense(context.cusparse_handle, n, nnz, rows, cols, indptr, indices, data);
 
@@ -65,14 +67,15 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, 
 
 	sort_sparse_matrix(context.cusparse_handle, M);
 
-	if (big_rows.size())
+	if (big_rows_size)
 	{
 		thrust::transform_if(
-			M.indices.begin(), M.indices.end(), M.indices.begin(),
-			[map = big_rows.data().get(), n] __device__(index_t x) { return map[x - n]; },
+			thrust::cuda::par_nosync.on(stream), M.indices.begin(), M.indices.end(), M.indices.begin(),
+			[map = big_rows, n] __device__(index_t x) { return map[x - n]; },
 			[n] __device__(index_t x) { return x >= n; });
 	}
 
+	CHECK_CUDA(cudaFreeAsync(big_rows, stream));
 	return M;
 }
 
@@ -217,7 +220,7 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 
 			// create indptr
 			index_t* scc_indptr;
-			cudaMallocAsync(&scc_indptr, sizeof(index_t) * (scc_size + 1), stream);
+			CHECK_CUDA(cudaMallocAsync(&scc_indptr, sizeof(index_t) * (scc_size + 1), stream));
 
 			thrust::copy(thrust::cuda::par_nosync.on(stream), A_indptr.begin() + scc_offset,
 						 A_indptr.begin() + scc_offset + scc_size + 1, scc_indptr);
@@ -232,10 +235,11 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 							  A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
 							  [scc_offset] __device__(index_t x) { return x - scc_offset; });
 
-			CHECK_CUDA(cudaStreamSynchronize(stream));
 
-			sparse_csr_matrix M = dense_lu_wrapper(context, scc_size, scc_nnz, scc_indptr,
+			sparse_csr_matrix M = dense_lu_wrapper(context, stream, scc_size, scc_nnz, scc_indptr,
 												   A_indices.data().get() + base, A_data.data().get() + base);
+
+			CHECK_CUDA(cudaFreeAsync(scc_indptr, stream));
 
 			thrust::transform(thrust::cuda::par_nosync.on(stream), M.indices.begin(), M.indices.end(),
 							  M.indices.begin(), [scc_offset] __device__(index_t x) { return x + scc_offset; });
