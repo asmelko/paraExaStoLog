@@ -9,6 +9,7 @@
 #include <thrust/sequence.h>
 #include <thrust/set_operations.h>
 #include <thrust/sort.h>
+#include <thrust/system/cuda/detail/par.h>
 #include <thrust/unique.h>
 
 #include "diagnostics.h"
