@@ -117,7 +117,7 @@ void solver::solve_terminal_part()
 		if constexpr (diags_enabled)
 		{
 			printf("\r                                                                        ");
-			printf("\rSolving (terminal part): %i/%i with size %i", (index_t)terminal_scc_idx,
+			printf("\r Solving (terminal part): %i/%i with size %i", (index_t)terminal_scc_idx,
 				   (index_t)terminals_offsets_.size() - 1, (index_t)scc_size);
 
 			if (terminal_scc_idx == terminals_offsets_.size() - 1)

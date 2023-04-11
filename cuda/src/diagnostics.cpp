@@ -28,7 +28,7 @@ void print_big_scc_info(size_t begin, h_idxvec sizes)
 	}
 
 	if (terminals_histo.size())
-		diag_print("LU: the biggest sccs (size, #occurences): ", diag);
+		diag_print("  LU: the biggest sccs (size, #occurences): ", diag);
 }
 
 void print_terminal_info(const h_idxvec& terminals_offsets)
@@ -58,6 +58,6 @@ void print_terminal_info(const h_idxvec& terminals_offsets)
 		diag += "(" + std::to_string(it->first) + ", " + std::to_string(it->second) + ") ";
 	}
 
-	diag_print("Terminals count: ", terminals_offsets.size() - 1);
-	diag_print("The biggest terminals (size, #occurences): ", diag);
+	diag_print(" Terminals count: ", terminals_offsets.size() - 1);
+	diag_print(" The biggest terminals (size, #occurences): ", diag);
 }

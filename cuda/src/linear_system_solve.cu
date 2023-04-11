@@ -258,10 +258,10 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 
 	if constexpr (diags_enabled)
 	{
-		diag_print("LU: total number of vertices: ", A_indptr.size() - 1);
-		diag_print("LU: small (<=", big_scc_threshold, ") sccs count is ", small_sccs_size, " with ", small_scc_rows,
+		diag_print("  LU: total number of vertices: ", A_indptr.size() - 1);
+		diag_print("  LU: small (<=", big_scc_threshold, ") sccs count is ", small_sccs_size, " with ", small_scc_rows,
 				   " edges");
-		diag_print("LU: big (> ", big_scc_threshold, ") sccs count is ", big_sccs_size, " with ", big_scc_rows,
+		diag_print("  LU: big (> ", big_scc_threshold, ") sccs count is ", big_sccs_size, " with ", big_scc_rows,
 				   " edges");
 		print_big_scc_info(small_sccs_size, part_scc_sizes);
 	}
@@ -278,7 +278,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 													part_scc_offsets.data().get(), A_indices.data().get(),
 													A_indptr.data().get(), As_indptr.data().get() + 1);
 		t.Stop();
-		diag_print("LU (small nnz): ", t.Millisecs(), "ms");
+		diag_print("  LU (small nnz): ", t.Millisecs(), "ms");
 	}
 
 	std::vector<sparse_csr_matrix> lus;
@@ -289,7 +289,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 		lus = lu_big_nnz(context, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr, A_indices, A_data,
 						 As_indptr);
 		t.Stop();
-		diag_print("LU (big nnz): ", t.Millisecs(), "ms");
+		diag_print("  LU (big nnz): ", t.Millisecs(), "ms");
 	}
 
 	// we allocate required space
@@ -309,7 +309,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 			A_indptr.data().get(), A_indices.data().get(), A_data.data().get(), As_indptr.data().get(),
 			As_indices.data().get(), As_data.data().get());
 		t.Stop();
-		diag_print("LU (small populate): ", t.Millisecs(), "ms");
+		diag_print("  LU (small populate): ", t.Millisecs(), "ms");
 	}
 
 	// we populate non triv
@@ -318,7 +318,7 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 		lu_big_populate(context.cusolver_handle, small_sccs_size, part_scc_offsets, As_indptr, As_indices, As_data,
 						lus);
 		t.Stop();
-		diag_print("LU (big populate): ", t.Millisecs(), "ms");
+		diag_print("  LU (big populate): ", t.Millisecs(), "ms");
 	}
 
 	CHECK_CUDA(cudaDeviceSynchronize());
@@ -508,7 +508,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	splu(context, scc_offsets, A.indptr, A.indices, A.data, M_indptr, M_indices, M_data);
 	t.Stop();
 
-	diag_print("Solving (LU decomposition): ", t.Millisecs(), "ms");
+	diag_print(" Solving (LU decomposition): ", t.Millisecs(), "ms");
 
 	cusparseMatDescr_t descr_L = 0;
 	cusparseMatDescr_t descr_U = 0;
@@ -557,7 +557,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 											descr_U, M_data.data().get(), M_indptr.data().get(), M_indices.data().get(),
 											1, info_U, policy_U, buffer_U.data().get()));
 
-	diag_print("Number of right-hand sides needed to solve: ", B.indptr.size() - 1, " with ", A.n(),
+	diag_print(" Number of right-hand sides needed to solve: ", B.indptr.size() - 1, " with ", A.n(),
 			   " number of unknowns");
 
 	t.Start();
@@ -610,7 +610,7 @@ sparse_csr_matrix solve_system(cu_context& context, sparse_csr_matrix&& A, const
 	X.indptr = hx_indptr;
 
 	t.Stop();
-	diag_print("Solving (triangular solving): ", t.Millisecs(), "ms");
+	diag_print(" Solving (triangular solving): ", t.Millisecs(), "ms");
 
 	// step 6: free resources
 	CHECK_CUSPARSE(cusparseDestroyMatDescr(descr_L));
