@@ -228,8 +228,17 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			thrust::transform(thrust::cuda::par.on(stream), scc_indptr, scc_indptr + scc_size + 1, scc_indptr,
 							  [base = A_indptr.data().get() + scc_offset] __device__(index_t x) { return x - *base; });
 
-			const index_t base = A_indptr[scc_offset];
-			const index_t scc_nnz = A_indptr[scc_offset + scc_size] - base;
+
+			index_t base;
+			index_t scc_nnz;
+
+			CHECK_CUDA(cudaMemcpyAsync(&base, A_indptr.data().get() + scc_offset, sizeof(index_t),
+									   cudaMemcpyHostToDevice, stream));
+			CHECK_CUDA(cudaMemcpyAsync(&scc_nnz, A_indptr.data().get() + scc_offset + scc_size, sizeof(index_t),
+									   cudaMemcpyHostToDevice, stream));
+
+			CHECK_CUDA(cudaStreamSynchronize(stream));
+			scc_nnz -= base;
 
 			thrust::transform(thrust::cuda::par.on(stream), A_indices.begin() + base,
 							  A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
