@@ -199,8 +199,8 @@ index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_si
 }
 
 std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_start, const h_idxvec& scc_sizes,
-										  const h_idxvec& scc_offsets, const d_idxvec& A_indptr,
-										  const d_idxvec& A_indices, const d_datvec& A_data, d_idxvec& As_indptr)
+										  const h_idxvec& scc_offsets, const d_idxvec& A_indptr, d_idxvec& A_indices,
+										  d_datvec& A_data, d_idxvec& As_indptr)
 {
 	std::vector<sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
@@ -251,11 +251,7 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
 							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
 
-			// d_idxvec sizes(scc_size);
 			thrust::adjacent_difference(M.indptr.begin() + 1, M.indptr.end(), As_indptr.begin() + scc_offset + 1);
-
-			/* CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(),
-								   sizeof(index_t) * scc_size, cudaMemcpyHostToDevice));*/
 
 			lu_vec.emplace_back(std::move(M));
 		});
@@ -282,8 +278,8 @@ void lu_big_populate(cusolverSpHandle_t handle, index_t big_scc_start, const d_i
 	}
 }
 
-void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_indptr, const d_idxvec& A_indices,
-		  const d_datvec& A_data, d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data)
+void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_indptr, d_idxvec& A_indices,
+		  d_datvec& A_data, d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data)
 {
 	d_idxvec part_scc_sizes, part_scc_offsets;
 	auto small_sccs_size = partition_sccs(scc_offsets, part_scc_sizes, part_scc_offsets);
