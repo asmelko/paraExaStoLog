@@ -233,9 +233,9 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			index_t scc_nnz;
 
 			CHECK_CUDA(cudaMemcpyAsync(&base, A_indptr.data().get() + scc_offset, sizeof(index_t),
-									   cudaMemcpyHostToDevice, stream));
+									   cudaMemcpyDeviceToHost, stream));
 			CHECK_CUDA(cudaMemcpyAsync(&scc_nnz, A_indptr.data().get() + scc_offset + scc_size, sizeof(index_t),
-									   cudaMemcpyHostToDevice, stream));
+									   cudaMemcpyDeviceToHost, stream));
 
 			CHECK_CUDA(cudaStreamSynchronize(stream));
 			scc_nnz -= base;
