@@ -19,7 +19,7 @@
 
 constexpr size_t big_scc_threshold = 2;
 
-constexpr size_t dense_threshold = 20'000;
+constexpr size_t dense_threshold = 4;
 
 d_idxvec compress_indices(index_t n, index_t nnz, index_t* indices)
 {
