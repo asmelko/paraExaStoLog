@@ -5,7 +5,7 @@
 #include "sga/timer.h"
 #include "types.h"
 
-constexpr bool diags_enabled = true;
+constexpr bool diags_enabled = false;
 
 template <typename last_t>
 void diag_print_to_line(last_t last)
