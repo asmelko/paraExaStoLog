@@ -184,7 +184,7 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			if constexpr (diags_enabled)
 			{
 				printf("\r                                                                  ");
-				printf("\rLU (big nnz): %i/%i with size %i", (i + 1) - big_scc_start,
+				printf("\r  LU (big nnz): %i/%i with size %i", (i + 1) - big_scc_start,
 					   (index_t)scc_sizes.size() - big_scc_start, scc_size);
 				if (i == scc_sizes.size() - 1)
 					printf("\n");
