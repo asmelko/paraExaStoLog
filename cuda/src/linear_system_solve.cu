@@ -212,17 +212,16 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			// create indptr
 			d_idxvec scc_indptr(scc_size + 1);
 
-			thrust::async::copy(A_indptr.begin() + scc_offset, A_indptr.begin() + scc_offset + scc_size + 1,
-								scc_indptr.begin());
-			thrust::async::transform(
-				scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
-				[base = A_indptr.data().get() + scc_offset] __device__(index_t x) { return x - *base; });
+			thrust::copy(A_indptr.begin() + scc_offset, A_indptr.begin() + scc_offset + scc_size + 1,
+						 scc_indptr.begin());
+			thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+							  [base = A_indptr.data().get() + scc_offset] __device__(index_t x) { return x - *base; });
 
 			const index_t base = A_indptr[scc_offset];
 			const index_t scc_nnz = A_indptr[scc_offset + scc_size] - base;
 
-			thrust::async::transform(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
-									 [scc_offset] __device__(index_t x) { return x - scc_offset; });
+			thrust::transform(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
+							  [scc_offset] __device__(index_t x) { return x - scc_offset; });
 
 			cudaDeviceSynchronize();
 
