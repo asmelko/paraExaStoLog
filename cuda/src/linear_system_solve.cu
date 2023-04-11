@@ -19,40 +19,57 @@
 
 constexpr size_t big_scc_threshold = 2;
 
-sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, index_t* indptr, index_t* indices,
-								   real_t* data)
+constexpr size_t dense_threshold = 20'000;
+
+d_idxvec compress_indices(index_t n, index_t nnz, index_t* indices)
 {
 	d_idxvec big_rows(nnz);
 
-	// modify
-	{
-		d_idxvec map;
+	d_idxvec map;
 
-		auto end = thrust::copy_if(thrust::device, indices, indices + nnz, big_rows.begin(),
-								   [n] __device__(index_t x) { return x >= n; });
+	auto end = thrust::copy_if(thrust::device, indices, indices + nnz, big_rows.begin(),
+							   [n] __device__(index_t x) { return x >= n; });
+
+	big_rows.resize(end - big_rows.begin());
+
+	if (big_rows.size())
+	{
+		thrust::sort(big_rows.begin(), big_rows.end());
+		end = thrust::unique(big_rows.begin(), big_rows.end());
 
 		big_rows.resize(end - big_rows.begin());
 
-		if (big_rows.size())
-		{
-			thrust::sort(big_rows.begin(), big_rows.end());
-			end = thrust::unique(big_rows.begin(), big_rows.end());
+		map.resize(big_rows.back() + 1);
 
-			big_rows.resize(end - big_rows.begin());
+		thrust::for_each_n(thrust::counting_iterator<index_t>(0), big_rows.size(),
+						   [map = map.data().get(), big_rows = big_rows.data().get(), n] __device__(index_t i) {
+							   map[big_rows[i]] = n + i;
+						   });
 
-			map.resize(big_rows.back() + 1);
-
-			thrust::for_each_n(thrust::counting_iterator<index_t>(0), big_rows.size(),
-							   [map = map.data().get(), big_rows = big_rows.data().get(), n] __device__(index_t i) {
-								   map[big_rows[i]] = n + i;
-							   });
-
-			thrust::transform_if(
-				thrust::device, indices, indices + nnz, indices,
-				[map = map.data().get()] __device__(index_t x) { return map[x]; },
-				[n] __device__(index_t x) { return x >= n; });
-		}
+		thrust::transform_if(
+			thrust::device, indices, indices + nnz, indices,
+			[map = map.data().get()] __device__(index_t x) { return map[x]; },
+			[n] __device__(index_t x) { return x >= n; });
 	}
+
+	return big_rows;
+}
+
+void decompress_indices(index_t n, d_idxvec& big_rows, d_idxvec& indices)
+{
+	if (big_rows.size())
+	{
+		thrust::transform_if(
+			indices.begin(), indices.end(), indices.begin(),
+			[map = big_rows.data().get(), n] __device__(index_t x) { return map[x - n]; },
+			[n] __device__(index_t x) { return x >= n; });
+	}
+}
+
+sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, index_t* indptr, index_t* indices,
+								   real_t* data)
+{
+	d_idxvec big_rows = compress_indices(n, nnz, indices);
 
 	index_t rows = n;
 	index_t cols = n + big_rows.size();
@@ -65,70 +82,42 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, 
 
 	sort_sparse_matrix(context.cusparse_handle, M);
 
-	if (big_rows.size())
-	{
-		thrust::transform_if(
-			M.indices.begin(), M.indices.end(), M.indices.begin(),
-			[map = big_rows.data().get(), n] __device__(index_t x) { return map[x - n]; },
-			[n] __device__(index_t x) { return x >= n; });
-	}
+	decompress_indices(n, big_rows, M.indices);
 
 	return M;
 }
 
-host_sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, h_idxvec&& indptr, h_idxvec&& rows, h_datvec&& data)
+sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t nnz, index_t* indptr, index_t* rows,
+								  real_t* data)
 {
-	host_sparse_csr_matrix M;
+	d_idxvec big_rows = compress_indices(n, nnz, rows);
 
-	auto orig_n = indptr.size() - 1;
-	auto nnz = rows.size();
+	host_sparse_csr_matrix h;
+	h.indptr.assign(indptr, indptr + n + 1);
+	h.indices.assign(rows, rows + nnz);
+	h.data.assign(data, data + nnz);
 
-	h_idxvec big_rows(nnz);
-	h_idxvec map;
-
-	// modify
+	if (big_rows.size())
 	{
-		auto end =
-			thrust::copy_if(rows.begin(), rows.end(), big_rows.begin(), [orig_n](index_t x) { return x >= orig_n; });
-
-		big_rows.resize(end - big_rows.begin());
-
-		if (big_rows.size())
-		{
-			thrust::sort(big_rows.begin(), big_rows.end());
-			end = thrust::unique(big_rows.begin(), big_rows.end());
-
-			big_rows.resize(end - big_rows.begin());
-
-			map.resize(big_rows.back() + 1);
-
-			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
-							   [&](index_t i) { map[big_rows[i]] = orig_n + i; });
-
-			thrust::transform_if(
-				rows.begin(), rows.end(), rows.begin(), [&](index_t x) { return map[x]; },
-				[orig_n](index_t x) { return x >= orig_n; });
-
-			indptr.resize(indptr.size() + big_rows.size());
-			thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
-							   [&](index_t i) { indptr[orig_n + 1 + i] = nnz; });
-		}
+		h.indptr.resize(n + 1 + big_rows.size());
+		thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
+						   [&](index_t i) { indptr[n + 1 + i] = nnz; });
 	}
-
-	host_sparse_csr_matrix h(std::move(indptr), std::move(rows), std::move(data));
 
 	host_sparse_csr_matrix l, u;
 
 	host_lu(handle, h, l, u);
 
-	M.indptr.resize(orig_n + 1);
-	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), orig_n + 1,
+	sparse_csr_matrix M;
+
+	M.indptr.resize(n + 1);
+	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), n + 1,
 					   [&](index_t i) { M.indptr[i] = l.indptr[i] + u.indptr[i]; });
 
 	M.indices.resize(M.indptr.back());
 	M.data.resize(M.indptr.back());
 
-	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), orig_n, [&](index_t i) {
+	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), n, [&](index_t i) {
 		auto begin = M.indptr[i];
 
 		auto L_begin = l.indptr[i];
@@ -145,15 +134,7 @@ host_sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, h_idxvec&& ind
 		thrust::copy(u.data.begin() + U_begin, u.data.begin() + U_end, M.data.begin() + begin + (L_end - L_begin));
 	});
 
-	// turn back
-	if (big_rows.size())
-	{
-		thrust::copy(big_rows.begin(), big_rows.end(), map.begin() + orig_n);
-
-		thrust::transform_if(
-			M.indices.begin(), M.indices.end(), M.indices.begin(), [&](index_t x) { return map[x]; },
-			[orig_n](index_t x) { return x >= orig_n; });
-	}
+	decompress_indices(n, big_rows, M.indices);
 
 	return M;
 }
@@ -223,10 +204,17 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			thrust::transform(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
 							  [scc_offset] __device__(index_t x) { return x - scc_offset; });
 
-			cudaDeviceSynchronize();
-
-			sparse_csr_matrix M = dense_lu_wrapper(context, scc_size, scc_nnz, scc_indptr.data().get(),
-												   A_indices.data().get() + base, A_data.data().get() + base);
+			sparse_csr_matrix M;
+			if (scc_size <= dense_threshold)
+			{
+				M = dense_lu_wrapper(context, scc_size, scc_nnz, scc_indptr.data().get(), A_indices.data().get() + base,
+									 A_data.data().get() + base);
+			}
+			else
+			{
+				M = host_lu_wrapper(context.cusolver_handle, scc_size, scc_nnz, scc_indptr.data().get(),
+									A_indices.data().get() + base, A_data.data().get() + base);
+			}
 
 			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
 							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
