@@ -1,8 +1,6 @@
 #include <cusolverRf.h>
 
 #include <thrust/adjacent_difference.h>
-#include <thrust/async/copy.h>
-#include <thrust/async/transform.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/execution_policy.h>
@@ -21,22 +19,16 @@
 
 constexpr size_t big_scc_threshold = 2;
 
-sparse_csr_matrix dense_lu_wrapper(cu_context& context, d_idxvec& indptr, d_idxvec& indices, d_datvec& data)
+sparse_csr_matrix dense_lu_wrapper(cu_context& context, index_t n, index_t nnz, index_t* indptr, index_t* indices,
+								   real_t* data)
 {
-	sparse_csr_matrix M;
-	M.indptr = std::move(indptr);
-	M.indices = std::move(indices);
-	M.data = std::move(data);
-
-	index_t n = M.n();
-	index_t nnz = M.nnz();
-
 	d_idxvec big_rows(nnz);
-	d_idxvec map;
 
 	// modify
 	{
-		auto end = thrust::copy_if(M.indices.begin(), M.indices.end(), big_rows.begin(),
+		d_idxvec map;
+
+		auto end = thrust::copy_if(thrust::device, indices, indices + nnz, big_rows.begin(),
 								   [n] __device__(index_t x) { return x >= n; });
 
 		big_rows.resize(end - big_rows.begin());
@@ -56,23 +48,20 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, d_idxvec& indptr, d_idxv
 							   });
 
 			thrust::transform_if(
-				M.indices.begin(), M.indices.end(), M.indices.begin(),
+				thrust::device, indices, indices + nnz, indices,
 				[map = map.data().get()] __device__(index_t x) { return map[x]; },
 				[n] __device__(index_t x) { return x >= n; });
 		}
 	}
 
-	index_t rows = M.n();
-	index_t cols = big_rows.size() + M.n();
+	index_t rows = n;
+	index_t cols = n + big_rows.size();
 
-
-	d_datvec dense_M = sparse2dense(context.cusparse_handle, n, nnz, rows, cols, M.indptr.data().get(),
-									M.indices.data().get(), M.data.data().get());
-
+	d_datvec dense_M = sparse2dense(context.cusparse_handle, n, nnz, rows, cols, indptr, indices, data);
 
 	dense_lu(context.cusolver_dn_handle, dense_M, rows, cols);
 
-	M = dense2sparse(context.cusparse_handle, dense_M, rows, cols);
+	sparse_csr_matrix M = dense2sparse(context.cusparse_handle, dense_M, rows, cols);
 
 	sort_sparse_matrix(context.cusparse_handle, M);
 
@@ -243,10 +232,8 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 
 			cudaDeviceSynchronize();
 
-			sparse_csr_matrix M = dense_lu_wrapper(context, scc_indptr, scc_indices, scc_data);
-
-			/* host_sparse_csr_matrix M = host_lu_wrapper(context.cusolver_handle, std::move(scc_indptr),
-													   std::move(scc_indices), std::move(scc_data));*/
+			sparse_csr_matrix M = dense_lu_wrapper(context, scc_size, scc_nnz, scc_indptr.data().get(),
+												   scc_indices.data().get(), scc_data.data().get());
 
 			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
 							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
