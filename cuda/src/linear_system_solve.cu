@@ -9,7 +9,6 @@
 #include <thrust/sequence.h>
 #include <thrust/set_operations.h>
 #include <thrust/sort.h>
-#include <thrust/system/cuda/detail/par.h>
 #include <thrust/unique.h>
 
 #include "diagnostics.h"
@@ -29,7 +28,7 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, cudaStream_t stream, ind
 
 	// modify
 	{
-		auto end = thrust::copy_if(thrust::cuda::par.on(stream), , indices, indices + nnz, big_rows,
+		auto end = thrust::copy_if(thrust::cuda::par.on(stream), indices, indices + nnz, big_rows,
 								   [n] __device__(index_t x) { return x >= n; });
 
 		big_rows_size = end - big_rows;
@@ -44,11 +43,11 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, cudaStream_t stream, ind
 			index_t* map;
 			CHECK_CUDA(cudaMallocAsync(&map, sizeof(index_t) * big_rows_size, stream));
 
-			thrust::for_each_n(thrust::cuda::par.on(stream), thrust::counting_iterator<index_t>(0),
-							   big_rows_size, [map, big_rows, n] __device__(index_t i) { map[big_rows[i]] = n + i; });
+			thrust::for_each_n(thrust::cuda::par.on(stream), thrust::counting_iterator<index_t>(0), big_rows_size,
+							   [map, big_rows, n] __device__(index_t i) { map[big_rows[i]] = n + i; });
 
 			thrust::transform_if(
-				thrust::cuda::par.on(stream), , indices, indices + nnz, indices,
+				thrust::cuda::par.on(stream), indices, indices + nnz, indices,
 				[map] __device__(index_t x) { return map[x]; }, [n] __device__(index_t x) { return x >= n; });
 
 			CHECK_CUDA(cudaFreeAsync(map, stream));
@@ -242,8 +241,8 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 
 			CHECK_CUDA(cudaFreeAsync(scc_indptr, stream));
 
-			thrust::transform(thrust::cuda::par.on(stream), M.indices.begin(), M.indices.end(),
-							  M.indices.begin(), [scc_offset] __device__(index_t x) { return x + scc_offset; });
+			thrust::transform(thrust::cuda::par.on(stream), M.indices.begin(), M.indices.end(), M.indices.begin(),
+							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
 
 			thrust::adjacent_difference(thrust::cuda::par.on(stream), M.indptr.begin() + 1, M.indptr.end(),
 										As_indptr.begin() + scc_offset + 1);
