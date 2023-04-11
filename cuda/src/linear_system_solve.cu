@@ -197,10 +197,15 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 	std::vector<sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	std::array<cudaStream_t, 2> streams;
+	std::array<cudaStream_t, 4> streams;
 
 	for (size_t i = 0; i < streams.size(); i++)
 		CHECK_CUDA(cudaStreamCreate(streams.data() + i));
+
+	cudaMemPool_t mempool;
+	cudaDeviceGetDefaultMemPool(&mempool, 0);
+	uint64_t threshold = UINT64_MAX;
+	cudaMemPoolSetAttribute(mempool, cudaMemPoolAttrReleaseThreshold, &threshold);
 
 	thrust::for_each(
 		thrust::host, thrust::make_counting_iterator<index_t>(big_scc_start),
