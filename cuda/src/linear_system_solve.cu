@@ -103,7 +103,7 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 	{
 		h.indptr.resize(n + 1 + big_rows.size());
 		thrust::for_each_n(thrust::host, thrust::counting_iterator<index_t>(0), big_rows.size(),
-						   [&](index_t i) { indptr[n + 1 + i] = nnz; });
+						   [&](index_t i) { h.indptr[n + 1 + i] = nnz; });
 	}
 
 	std::cout << "comp " << big_rows.size() << std::endl;
