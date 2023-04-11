@@ -65,9 +65,9 @@ sparse_csr_matrix dense_lu_wrapper(cu_context& context, d_idxvec& indptr, d_idxv
 	index_t rows = M.n();
 	index_t cols = big_rows.size() + M.n();
 
-	M.h = rows;
-	M.w = cols;
-	d_datvec dense_M = sparse2dense(context.cusparse_handle, M);
+
+	d_datvec dense_M = sparse2dense(context.cusparse_handle, n, nnz, rows, cols, indptr.data().get(), indices.data().get(), data.data().get());
+
 
 	dense_lu(context.cusolver_dn_handle, dense_M, rows, cols);
 

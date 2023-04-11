@@ -205,16 +205,13 @@ d_datvec mvmul(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_d
 	return y;
 }
 
-d_datvec sparse2dense(cusparseHandle_t handle, sparse_csr_matrix& M)
+d_datvec sparse2dense(cusparseHandle_t handle, index_t n, index_t nnz, index_t rows, index_t cols, index_t* indptr,
+					  index_t* indices, real_t* data)
 {
-	auto rows = M.h;
-	auto cols = M.w;
-
 	cusparseSpMatDescr_t matM;
 	cusparseDnMatDescr_t matDn;
-	CHECK_CUSPARSE(cusparseCreateCsr(&matM, rows, cols, M.nnz(), M.indptr.data().get(), M.indices.data().get(),
-									 M.data.data().get(), CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-									 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+	CHECK_CUSPARSE(cusparseCreateCsr(&matM, rows, cols, nnz, indptr, indices, data, CUSPARSE_INDEX_32I,
+									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
 
 	d_datvec mat_dn(rows * cols);
 	CHECK_CUSPARSE(cusparseCreateDnMat(&matDn, rows, cols, rows, mat_dn.data().get(), CUDA_R_32F, CUSPARSE_ORDER_COL));
