@@ -97,6 +97,8 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 	h.indices.assign(rows, rows + nnz);
 	h.data.assign(data, data + nnz);
 
+	std::cout << "comp " << big_rows.size() << std::endl;
+
 	if (big_rows.size())
 	{
 		h.indptr.resize(n + 1 + big_rows.size());
@@ -104,9 +106,13 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 						   [&](index_t i) { indptr[n + 1 + i] = nnz; });
 	}
 
+	std::cout << "comp " << big_rows.size() << std::endl;
+
 	host_sparse_csr_matrix l, u;
 
 	host_lu(handle, h, l, u);
+
+	std::cout << "comp " << big_rows.size() << std::endl;
 
 	sparse_csr_matrix M;
 
@@ -114,17 +120,19 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), n + 1,
 					   [&](index_t i) { M.indptr[i] = l.indptr[i] + u.indptr[i]; });
 
+	std::cout << "comp " << big_rows.size() << std::endl;
+
 	M.indices.resize(M.indptr.back());
 	M.data.resize(M.indptr.back());
 
 	thrust::for_each_n(thrust::host, thrust::make_counting_iterator<index_t>(0), n, [&](index_t i) {
-		auto begin = M.indptr[i];
+		index_t begin = M.indptr[i];
 
-		auto L_begin = l.indptr[i];
-		auto U_begin = u.indptr[i];
+		index_t L_begin = l.indptr[i];
+		index_t U_begin = u.indptr[i];
 
-		auto L_end = l.indptr[i + 1];
-		auto U_end = u.indptr[i + 1];
+		index_t L_end = l.indptr[i + 1];
+		index_t U_end = u.indptr[i + 1];
 
 		thrust::copy(l.indices.begin() + L_begin, l.indices.begin() + L_end, M.indices.begin() + begin);
 		thrust::copy(u.indices.begin() + U_begin, u.indices.begin() + U_end,
@@ -134,7 +142,11 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 		thrust::copy(u.data.begin() + U_begin, u.data.begin() + U_end, M.data.begin() + begin + (L_end - L_begin));
 	});
 
+	std::cout << "comp " << big_rows.size() << std::endl;
+
 	decompress_indices(n, big_rows, M.indices);
+
+	std::cout << "comp " << big_rows.size() << std::endl;
 
 	return M;
 }
