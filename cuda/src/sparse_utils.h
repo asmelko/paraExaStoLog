@@ -85,6 +85,8 @@ void host_lu(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h, host_sp
 			 host_sparse_csr_matrix& u);
 
 double host_det(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h);
+double dense_det(cu_context& context, sparse_csr_matrix& m);
+double determinant(cu_context& context, sparse_csr_matrix& m);
 
 void create_minor(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_datvec& data,
 				  const index_t remove_vertex);

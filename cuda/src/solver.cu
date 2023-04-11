@@ -144,9 +144,9 @@ void solver::solve_terminal_part()
 
 			create_minor(context_.cusparse_handle, minor_indptr, minor_rows, minor_data, minor_i);
 
-			host_sparse_csr_matrix h(minor_indptr, minor_rows, minor_data);
+			sparse_csr_matrix m(std::move(minor_indptr), std::move(minor_rows), std::move(minor_data));
 
-			h_minors[minor_i] = std::abs(host_det(context_.cusolver_handle, h));
+			h_minors[minor_i] = std::abs(determinant(context_, m));
 		}
 
 		thrust::device_vector<double> minors = h_minors;
@@ -273,7 +273,8 @@ void solver::solve_nonterminal_part()
 	solution_nonterm.indices.resize(nonterm_nnz);
 	solution_nonterm.data.resize(nonterm_nnz);
 
-	thrust::transform(U.indptr.begin(), U.indptr.end(), X.indptr.begin(),solution_nonterm.indptr.begin(), thrust::plus<index_t>());
+	thrust::transform(U.indptr.begin(), U.indptr.end(), X.indptr.begin(), solution_nonterm.indptr.begin(),
+					  thrust::plus<index_t>());
 
 	// -U back to U
 	thrust::transform(U.data.begin(), U.data.end(), U.data.begin(), thrust::negate<real_t>());

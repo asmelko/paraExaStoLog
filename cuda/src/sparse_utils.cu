@@ -9,6 +9,8 @@
 
 #include "sparse_utils.h"
 
+constexpr size_t dense_det_threshold = 20'000;
+
 void coo2csc(cusparseHandle_t handle, index_t n, d_idxvec& rows, d_idxvec& cols, d_idxvec& indptr)
 {
 	size_t buffersize;
@@ -349,6 +351,25 @@ void host_lu(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h, host_sp
 	CHECK_CUSOLVER(cusolverSpDestroyCsrluInfoHost(info));
 }
 
+double dense_det(cu_context& context, sparse_csr_matrix& m)
+{
+	index_t n = m.n();
+
+	d_datvec m_dn = sparse2dense(context.cusparse_handle, n, m.nnz(), n, n, m.indptr.data().get(),
+								 m.indices.data().get(), m.data.data().get());
+
+	dense_lu(context.cusolver_dn_handle, m_dn, n, n);
+
+	thrust::device_vector<double> diag;
+	diag.resize(n);
+
+	thrust::for_each(
+		thrust::device, thrust::make_counting_iterator<index_t>(0), thrust::make_counting_iterator<index_t>(n),
+		[data = m_dn.data().get(), diag = diag.data().get(), n] __device__(index_t i) { diag[i] = data[i * n + i]; });
+
+	return thrust::reduce(diag.begin(), diag.end(), 1., thrust::multiplies<double>());
+}
+
 double host_det(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h)
 {
 	index_t n = h.indptr.size() - 1;
@@ -376,6 +397,17 @@ double host_det(cusolverSpHandle_t handle, const host_sparse_csr_matrix& h)
 					 });
 
 	return thrust::reduce(diag.begin(), diag.end(), 1., thrust::multiplies<double>());
+}
+
+double determinant(cu_context& context, sparse_csr_matrix& m)
+{
+	if (m.n() <= dense_det_threshold)
+		return dense_det(context, m);
+	else
+	{
+		host_sparse_csr_matrix h(m.indptr, m.indices, m.data);
+		return host_det(context.cusolver_handle, h);
+	}
 }
 
 void create_minor(cusparseHandle_t handle, d_idxvec& indptr, d_idxvec& indices, d_datvec& data,
