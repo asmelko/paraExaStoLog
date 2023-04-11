@@ -93,9 +93,9 @@ sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, index_t n, index_t 
 	d_idxvec big_rows = compress_indices(n, nnz, rows);
 
 	host_sparse_csr_matrix h;
-	h.indptr.assign(indptr, indptr + n + 1);
-	h.indices.assign(rows, rows + nnz);
-	h.data.assign(data, data + nnz);
+	h.indptr.assign(thrust::device_pointer_cast(indptr), thrust::device_pointer_cast(indptr + n + 1));
+	h.indices.assign(thrust::device_pointer_cast(rows), thrust::device_pointer_cast(rows + nnz));
+	h.data.assign(thrust::device_pointer_cast(data), thrust::device_pointer_cast(data + nnz));
 
 	std::cout << "comp " << big_rows.size() << std::endl;
 
