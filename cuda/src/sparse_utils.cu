@@ -230,14 +230,15 @@ d_datvec sparse2dense(cusparseHandle_t handle, sparse_csr_matrix& M)
 	return mat_dn;
 }
 
-sparse_csr_matrix dense2sparse(cusparseHandle_t handle, d_datvec mat_dn, index_t rows, index_t cols)
+sparse_csr_matrix dense2sparse(cusparseHandle_t handle, d_datvec& mat_dn, index_t rows, index_t cols)
 {
 	sparse_csr_matrix M;
+	M.indptr.resize(rows + 1);
 
 	cusparseSpMatDescr_t matM;
 	cusparseDnMatDescr_t matDn;
-	CHECK_CUSPARSE(cusparseCreateCsr(&matM, 0, 0, 0, nullptr, nullptr, nullptr, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-									 CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+	CHECK_CUSPARSE(cusparseCreateCsr(&matM, rows, cols, 0, M.indptr.data().get(), nullptr, nullptr, CUSPARSE_INDEX_32I,
+									 CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
 
 	CHECK_CUSPARSE(cusparseCreateDnMat(&matDn, rows, cols, rows, mat_dn.data().get(), CUDA_R_32F, CUSPARSE_ORDER_COL));
 
@@ -254,7 +255,6 @@ sparse_csr_matrix dense2sparse(cusparseHandle_t handle, d_datvec mat_dn, index_t
 
 	CHECK_CUSPARSE(cusparseSpMatGetSize(matM, &rows_, &cols_, &nnz));
 
-	M.indptr.resize(rows + 1);
 	M.indices.resize(nnz);
 	M.data.resize(nnz);
 

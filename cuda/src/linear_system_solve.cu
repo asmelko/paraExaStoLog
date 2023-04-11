@@ -1,8 +1,8 @@
-#include "linear_system_solve.h"
-
 #include <cusolverRf.h>
 
 #include <thrust/adjacent_difference.h>
+#include <thrust/async/copy.h>
+#include <thrust/async/transform.h>
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/execution_policy.h>
@@ -15,19 +15,55 @@
 
 #include "diagnostics.h"
 #include "kernels/kernels.h"
+#include "linear_system_solve.h"
 #include "sparse_utils.h"
+#include "utils.h"
 
 constexpr size_t big_scc_threshold = 2;
 
-host_sparse_csr_matrix dense_lu_wrapper(cu_context& context, h_idxvec&& indptr, h_idxvec&& indices, h_datvec&& data)
+sparse_csr_matrix dense_lu_wrapper(cu_context& context, d_idxvec& indptr, d_idxvec& indices, d_datvec& data)
 {
 	sparse_csr_matrix M;
 	M.indptr = std::move(indptr);
 	M.indices = std::move(indices);
 	M.data = std::move(data);
 
-	index_t rows = M.n() - 1;
-	index_t cols = thrust::reduce(M.indices.begin(), M.indices.end(), 0, thrust::maximum<index_t>());
+	index_t n = M.n();
+	index_t nnz = M.nnz();
+
+	d_idxvec big_rows(nnz);
+	d_idxvec map;
+
+	// modify
+	{
+		auto end = thrust::copy_if(M.indices.begin(), M.indices.end(), big_rows.begin(),
+								   [n] __device__(index_t x) { return x >= n; });
+
+		big_rows.resize(end - big_rows.begin());
+
+		if (big_rows.size())
+		{
+			thrust::sort(big_rows.begin(), big_rows.end());
+			end = thrust::unique(big_rows.begin(), big_rows.end());
+
+			big_rows.resize(end - big_rows.begin());
+
+			map.resize(big_rows.back() + 1);
+
+			thrust::for_each_n(thrust::counting_iterator<index_t>(0), big_rows.size(),
+							   [map = map.data().get(), big_rows = big_rows.data().get(), n] __device__(index_t i) {
+								   map[big_rows[i]] = n + i;
+							   });
+
+			thrust::transform_if(
+				M.indices.begin(), M.indices.end(), M.indices.begin(),
+				[map = map.data().get()] __device__(index_t x) { return map[x]; },
+				[n] __device__(index_t x) { return x >= n; });
+		}
+	}
+
+	index_t rows = M.n();
+	index_t cols = big_rows.size() + M.n();
 
 	M.h = rows;
 	M.w = cols;
@@ -37,13 +73,17 @@ host_sparse_csr_matrix dense_lu_wrapper(cu_context& context, h_idxvec&& indptr, 
 
 	M = dense2sparse(context.cusparse_handle, dense_M, rows, cols);
 
-	host_sparse_csr_matrix h_M;
+	sort_sparse_matrix(context.cusparse_handle, M);
 
-	h_M.indptr = std::move(M.indptr);
-	h_M.indices = std::move(M.indices);
-	h_M.data = std::move(M.data);
+	if (big_rows.size())
+	{
+		thrust::transform_if(
+			M.indices.begin(), M.indices.end(), M.indices.begin(),
+			[map = big_rows.data().get(), n] __device__(index_t x) { return map[x - n]; },
+			[n] __device__(index_t x) { return x >= n; });
+	}
 
-	return h_M;
+	return M;
 }
 
 host_sparse_csr_matrix host_lu_wrapper(cusolverSpHandle_t handle, h_idxvec&& indptr, h_idxvec&& rows, h_datvec&& data)
@@ -157,70 +197,74 @@ index_t partition_sccs(const d_idxvec& scc_offsets, d_idxvec& partitioned_scc_si
 	return small_sccs;
 }
 
-std::vector<host_sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_start,
-											   const d_idxvec& scc_sizes, const d_idxvec& scc_offsets,
-											   const d_idxvec& A_indptr, const d_idxvec& A_indices,
-											   const d_datvec& A_data, d_idxvec& As_indptr)
+std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_start, const h_idxvec& scc_sizes,
+										  const h_idxvec& scc_offsets, const d_idxvec& A_indptr,
+										  const d_idxvec& A_indices, const d_datvec& A_data, d_idxvec& As_indptr)
 {
-	h_idxvec indptr = A_indptr;
-	h_idxvec indices = A_indices;
-	h_datvec data = A_data;
-
-	std::vector<host_sparse_csr_matrix> lu_vec;
+	std::vector<sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	thrust::for_each(thrust::seq, thrust::make_counting_iterator<index_t>(big_scc_start),
-					 thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
-						 const index_t scc_offset = scc_offsets[i];
-						 const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
+	thrust::for_each(
+		thrust::seq, thrust::make_counting_iterator<index_t>(big_scc_start),
+		thrust::make_counting_iterator<index_t>(scc_sizes.size()), [&](index_t i) {
+			const index_t scc_offset = scc_offsets[i];
+			const index_t scc_size = (i == big_scc_start) ? scc_sizes[i] : scc_sizes[i] - scc_sizes[i - 1];
 
-						 if constexpr (diags_enabled)
-						 {
-							 printf("\r                                                                  ");
-							 printf("\rLU (big nnz): %i/%i with size %i", (i + 1) - big_scc_start,
-									(index_t)scc_sizes.size() - big_scc_start, scc_size);
-							 if (i == scc_sizes.size() - 1)
-								 printf("\n");
-						 }
+			if constexpr (diags_enabled)
+			{
+				printf("\r                                                                  ");
+				printf("\rLU (big nnz): %i/%i with size %i", (i + 1) - big_scc_start,
+					   (index_t)scc_sizes.size() - big_scc_start, scc_size);
+				if (i == scc_sizes.size() - 1)
+					printf("\n");
+			}
 
-						 // create indptr
-						 h_idxvec scc_indptr(indptr.begin() + scc_offset, indptr.begin() + scc_offset + scc_size + 1);
-						 const index_t base = scc_indptr[0];
-						 thrust::transform(scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
-										   [base](index_t x) { return x - base; });
+			// create indptr
+			d_idxvec scc_indptr(scc_size + 1);
 
-						 const index_t scc_nnz = scc_indptr.back();
+			thrust::async::copy(A_indptr.begin() + scc_offset, A_indptr.begin() + scc_offset + scc_size + 1,
+								scc_indptr.begin());
+			thrust::async::transform(
+				scc_indptr.begin(), scc_indptr.end(), scc_indptr.begin(),
+				[base = A_indptr.data().get() + scc_offset] __device__(index_t x) { return x - *base; });
 
-						 h_idxvec scc_indices(indices.begin() + base, indices.begin() + base + scc_nnz);
-						 thrust::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
-										   [scc_offset](index_t x) { return x - scc_offset; });
+			const index_t base = A_indptr[scc_offset];
+			const index_t scc_nnz = A_indptr[scc_offset + scc_size] - base;
 
-						 h_datvec scc_data(data.begin() + base, data.begin() + base + scc_nnz);
+			d_idxvec scc_indices(scc_nnz);
 
-						 host_sparse_csr_matrix M = dense_lu_wrapper(context, std::move(scc_indptr),
-																	std::move(scc_indices), std::move(scc_data));
+			thrust::async::copy(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, scc_indices.begin());
+			thrust::async::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+									 [scc_offset] __device__(index_t x) { return x - scc_offset; });
 
-						//  host_sparse_csr_matrix M = host_lu_wrapper(handle, std::move(scc_indptr),
-						// 											std::move(scc_indices), std::move(scc_data));
+			d_datvec scc_data(scc_nnz);
+			thrust::async::copy(A_data.begin() + base, A_data.begin() + base + scc_nnz, scc_data.begin());
 
-						 thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
-										   [scc_offset](index_t x) { return x + scc_offset; });
+			cudaDeviceSynchronize();
 
-						 h_idxvec sizes(scc_size);
-						 thrust::adjacent_difference(M.indptr.begin() + 1, M.indptr.end(), sizes.begin());
+			sparse_csr_matrix M = dense_lu_wrapper(context, scc_indptr, scc_indices, scc_data);
 
-						 CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(),
-											   sizeof(index_t) * scc_size, cudaMemcpyHostToDevice));
+			/* host_sparse_csr_matrix M = host_lu_wrapper(context.cusolver_handle, std::move(scc_indptr),
+													   std::move(scc_indices), std::move(scc_data));*/
 
-						 lu_vec.emplace_back(std::move(M));
-					 });
+			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
+							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
+
+			// d_idxvec sizes(scc_size);
+			thrust::adjacent_difference(M.indptr.begin() + 1, M.indptr.end(), As_indptr.begin() + scc_offset + 1);
+
+			/* CHECK_CUDA(cudaMemcpy(As_indptr.data().get() + scc_offset + 1, sizes.data(),
+								   sizeof(index_t) * scc_size, cudaMemcpyHostToDevice));*/
+
+			lu_vec.emplace_back(std::move(M));
+		});
 
 	return lu_vec;
 }
 
 void lu_big_populate(cusolverSpHandle_t handle, index_t big_scc_start, const d_idxvec& scc_offsets,
 					 const d_idxvec& As_indptr, d_idxvec& As_indices, d_datvec& As_data,
-					 const std::vector<host_sparse_csr_matrix>& lus)
+					 const std::vector<sparse_csr_matrix>& lus)
 {
 	for (size_t i = 0; i < lus.size(); i++)
 	{
@@ -229,11 +273,11 @@ void lu_big_populate(cusolverSpHandle_t handle, index_t big_scc_start, const d_i
 
 		const index_t begin = As_indptr[scc_offset];
 
-		CHECK_CUDA(cudaMemcpy(As_indices.data().get() + begin, lus[i].indices.data(),
-							  sizeof(index_t) * lus[i].indices.size(), cudaMemcpyHostToDevice));
+		CHECK_CUDA(cudaMemcpy(As_indices.data().get() + begin, lus[i].indices.data().get(),
+							  sizeof(index_t) * lus[i].indices.size(), cudaMemcpyDeviceToDevice));
 
-		CHECK_CUDA(cudaMemcpy(As_data.data().get() + begin, lus[i].data.data(), sizeof(index_t) * lus[i].data.size(),
-							  cudaMemcpyHostToDevice));
+		CHECK_CUDA(cudaMemcpy(As_data.data().get() + begin, lus[i].data.data().get(),
+							  sizeof(index_t) * lus[i].data.size(), cudaMemcpyDeviceToDevice));
 	}
 }
 
@@ -272,13 +316,13 @@ void splu(cu_context& context, const d_idxvec& scc_offsets, const d_idxvec& A_in
 		diag_print("LU (small nnz): ", t.Millisecs(), "ms");
 	}
 
-	std::vector<host_sparse_csr_matrix> lus;
+	std::vector<sparse_csr_matrix> lus;
 
 	// without waiting we compute nnz of non triv
 	{
 		t.Start();
-		lus = lu_big_nnz(context, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr,
-						 A_indices, A_data, As_indptr);
+		lus = lu_big_nnz(context, small_sccs_size, part_scc_sizes, part_scc_offsets, A_indptr, A_indices, A_data,
+						 As_indptr);
 		t.Stop();
 		diag_print("LU (big nnz): ", t.Millisecs(), "ms");
 	}
