@@ -221,16 +221,13 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 			const index_t base = A_indptr[scc_offset];
 			const index_t scc_nnz = A_indptr[scc_offset + scc_size] - base;
 
-			d_idxvec scc_indices(scc_nnz);
-
-			thrust::async::copy(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, scc_indices.begin());
-			thrust::async::transform(scc_indices.begin(), scc_indices.end(), scc_indices.begin(),
+			thrust::async::transform(A_indices.begin() + base, A_indices.begin() + base + scc_nnz, A_indices.begin() + base,
 									 [scc_offset] __device__(index_t x) { return x - scc_offset; });
 
 			cudaDeviceSynchronize();
 
 			sparse_csr_matrix M = dense_lu_wrapper(context, scc_size, scc_nnz, scc_indptr.data().get(),
-												   scc_indices.data().get(), A_data.data().get() + base);
+												   A_indices.data().get() + base, A_data.data().get() + base);
 
 			thrust::transform(M.indices.begin(), M.indices.end(), M.indices.begin(),
 							  [scc_offset] __device__(index_t x) { return x + scc_offset; });
