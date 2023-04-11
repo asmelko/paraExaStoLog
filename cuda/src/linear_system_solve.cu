@@ -197,7 +197,7 @@ std::vector<sparse_csr_matrix> lu_big_nnz(cu_context& context, index_t big_scc_s
 	std::vector<sparse_csr_matrix> lu_vec;
 	lu_vec.reserve(scc_sizes.size() - big_scc_start);
 
-	std::array<cudaStream_t, 5> streams;
+	std::array<cudaStream_t, 2> streams;
 
 	for (size_t i = 0; i < streams.size(); i++)
 		CHECK_CUDA(cudaStreamCreate(streams.data() + i));
